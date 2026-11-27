@@ -77,14 +77,11 @@ function dashboard(){
   const members=live(state.members).filter(row=>row.status==='활동');
   const board=live(state.board);
   const waiting=renewalTargets(state).filter(member=>!live(state.mpe).some(row=>row.member===member.id&&row.cycle===member.expiry&&row.status==='완료'));
-  const {counts}=attendanceTotals(state,date);
   const metrics=[
     ['members','전체 멤버',members.length,'명','♙','활동 멤버 기준'],
     ['admissions','신규 입회 심사',live(state.admissions).filter(row=>['검토 중','보류'].includes(row.status)).length,'건','＋','검토 또는 보류'],
     ['renewals','갱신 대상 멤버',renewalTargets(state).length,'명','↻','만료 90일 이내 및 만료 멤버'],
     ['mpe','MPE 평가 대기',waiting.length,'명','☆','완료되지 않은 평가'],
-    ['visitors','비지터 참석 예정',live(state.visitors).filter(row=>row.date===date&&row.type==='비지터'&&row.status==='참석 예정').length,'명','↗','다음 주간회의'],
-    ['attendance','출결 미확인',counts['미확인'],'명','◷','다음 주간회의'],
 
   ];
   return `<div class="welcome"><div><h1>멤버십 대시보드</h1><p>미다스챕터 멤버십위원회 전용 업무관리 서비스</p></div>${statusPill(store.demo?'가상 데이터':admin()?'관리자':'위원')}</div>${store.demo?'<p class="demo-note">시연 모드 · 실제 회원 정보는 입력하지 마세요.</p>':''}
