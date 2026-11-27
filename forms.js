@@ -5,7 +5,7 @@ const date=(label='날짜')=>f('date',label,'date');
 const notes=(label='특이사항')=>f('notes',label,'textarea');
 const select=(key,label,...options)=>f(key,label,'select',options);
 const member=(label='대상 멤버')=>f('member',label,'member');
-const task=[name(),select('status','진행 상태','대기','진행 중','완료'),f('owner','담당 위원'),f('due','기한','date'),select('priority','우선순위','일반','긴급'),notes(),f('reportNote','공유할 주간보고 특이사항','textarea')];
+const task=[name(),select('status','진행 상태','대기','진행 중','완료'),f('owner','담당 위원'),f('due','기한','date'),select('priority','우선순위','일반','긴급'),notes()];
 export const fields={
   board:task,other:task,
   meetings:[date('회의 날짜'),name('회의 제목')],

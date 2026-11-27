@@ -1,11 +1,12 @@
 import {attendanceFor,attendanceTotals,config,entries,live,localDate,menus,nextMeeting,renewalTargets,reportFor,scoreInfo,statuses} from './model.js';
 import {escape as e,fields,formFields,readFields} from './forms.js';
 import {openStore} from './storage.js';
+import {attachmentFields,readAttachments,reportPng} from './media.js';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
-let store,state,meeting,query='',report='',mpeMember='',attendanceMode='meeting',historyMode='meetings';
-let promptInstall;
+let store,state,meeting,query='',mpeMember='',attendanceMode='meeting',historyMode='meetings';
+let promptInstall,reportFile,reportUrl,reportRevision=0;
 let toastTimer;
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();promptInstall=event;});
 const admin=()=>store.role==='admin';
@@ -25,7 +26,16 @@ function notify(message){
   clearTimeout(toastTimer);
   toastTimer=setTimeout(()=>toast.textContent='',4000);
 }
-function closeDialog(){if(dialog.open) dialog.close();}
+function clearReport(){
+  reportRevision++;
+  if(reportUrl) URL.revokeObjectURL(reportUrl);
+  reportFile=reportUrl=undefined;
+}
+function closeDialog(){
+  if(dialog.querySelector('#report-image')) clearReport();
+  if(dialog.open) dialog.close();
+}
+dialog.addEventListener('close',()=>{if(!dialog.open&&dialog.querySelector('#report-image')) clearReport();});
 function modal(title,body,onSubmit,submit='저장'){
   closeDialog();
   dialog.innerHTML=`<form><div class="dialog-head"><h2>${title}</h2>${btn('×','close','icon-button')}</div><div class="dialog-body">${body}</div><div class="form-error" role="alert"></div><footer>${btn('닫기','close')} ${onSubmit?`<button class="primary" type="submit">${submit}</button>`:''}</footer></form>`;
@@ -121,7 +131,7 @@ function edit(table,id='',defaults={}){
   if(table==='members'&&!admin()){if(existing) modal(e(existing.name),`<p>${e(existing.company)} · ${e(existing.specialty)}</p><p>챕터 직무 ${e(existing.chapterRole||'미등록')} · 갱신월 ${e(existing.renewalMonth||'미등록')}</p><p>갱신 만료일 ${e(existing.expiry||'미등록')}</p>`);return;}
   const row=existing||{id:crypto.randomUUID(),date:meeting,applied:localDate(),...defaults};
   const trash=existing&&admin()?`<div class="editor-meta">등록 ${e(existing.createdBy||'샘플')} · 수정 ${e(existing.updatedBy||'—')} ${btn('휴지통으로 이동','delete:'+table+':'+existing.id,'danger')}</div>`:'';
-  modal(e(labelOf(table))+(existing?' 수정':' 등록'),(table==='meetings'?meetingFields(row):formFields(fields[table],row,state))+trash,async form=>{
+  modal(e(labelOf(table))+(existing?' 수정':' 등록'),(table==='meetings'?meetingFields(row):formFields(fields[table],row,state))+attachmentFields(table,row,store.demo)+trash,async form=>{
     const updated={...row,...readFields(form,fields[table])};
     if('name' in updated&&!updated.name) throw Error('이름 또는 제목을 입력하세요.');
     if(table==='meetings'){
@@ -145,6 +155,8 @@ function edit(table,id='',defaults={}){
       updated.early=updated.status==='지각'&&updated.early;
       if(updated.status==='대리인'&&!updated.proxy) throw Error('대리인 성명을 입력하세요.');
     }
+    const attachments=await readAttachments(form,table,row.attachments,store.demo);
+    if(attachments) updated.attachments=attachments;
     await save([upsert(table,updated)]);
   });
 }
@@ -190,7 +202,7 @@ function mpeScreen(){
   return `${btn('← 평가 대상 목록','mpeback','text-button')}${heading(e(member.name),'갱신 MPE 평가')}${!row.confirmed?'<div class="notice">임시 평가표입니다. 실제 8개 항목과 배점을 확인한 뒤 설정에서 교체하세요.</div>':''}
     <form id="mpe-form" data-member="${e(member.id)}"><div class="panel eval-progress"><div><strong id="score">${info.total} / ${info.max}점</strong><span id="progress-label">${info.answered} / ${row.criteria.length} 항목</span></div><progress id="progress" value="${info.answered}" max="${row.criteria.length||1}"></progress></div>
     ${row.criteria.map((item,i)=>`<fieldset class="panel criterion"><legend>${e(item.name)}</legend><div class="score-options">${item.scores.map(score=>`<label><input type="radio" name="score-${i}" value="${e(score)}" ${row.scores[i]===score?'checked':''}><span>${e(score)}</span></label>`).join('')}</div></fieldset>`).join('')}
-    <div class="panel form-panel"><fieldset class="assessment"><legend>MPE 종합 판정</legend><div class="score-options">${['충족','보완 필요'].map(value=>`<label><input type="radio" name="assessment" value="${value}" ${row.assessment===value?'checked':''}><span class="${statusColors[value]}">${value}</span></label>`).join('')}</div></fieldset>${formFields(fields.mpe,row,state)}</div><div class="toolbar">${btn('출결 이력','stats:'+member.id)}${btn('평가 이력','mpehistory:'+member.id)}<button name="mode" value="draft" class="secondary">임시 저장</button><button name="mode" value="complete" class="primary">완료 처리</button></div><p class="form-error" role="alert"></p></form>`;
+    <div class="panel form-panel"><fieldset class="assessment"><legend>MPE 종합 판정</legend><div class="score-options">${['충족','보완 필요'].map(value=>`<label><input type="radio" name="assessment" value="${value}" ${row.assessment===value?'checked':''}><span class="${statusColors[value]}">${value}</span></label>`).join('')}</div></fieldset>${formFields(fields.mpe,row,state)}${attachmentFields('mpe',row,store.demo)}</div><div class="toolbar">${btn('출결 이력','stats:'+member.id)}${btn('평가 이력','mpehistory:'+member.id)}<button name="mode" value="draft" class="secondary">임시 저장</button><button name="mode" value="complete" class="primary">완료 처리</button></div><p class="form-error" role="alert"></p></form>`;
 }
 function readScores(form,criteria){
   const data=new FormData(form);
@@ -219,9 +231,9 @@ function settingsModal(kind){
     });
   }
   if(kind==='preferences'){
-    modal('회의 및 보고서 설정',`<label class="field"><span>다음 주간회의 날짜</span><input type="date" required name="next" value="${e(cfg.next||nextMeeting())}"></label><label class="field"><span>보고서 제목</span><input name="reportTitle" value="${e(cfg.reportTitle)}" placeholder="미다스챕터 멤버십위원회 주간보고"></label><label class="field"><span>보고서 하단 문구</span><textarea name="report">${e(cfg.report)}</textarea></label>`,async form=>{
+    modal('회의 및 보고서 설정',`<label class="field"><span>다음 주간회의 날짜</span><input type="date" required name="next" value="${e(cfg.next||nextMeeting())}"></label><label class="field"><span>보고서 제목</span><input name="reportTitle" value="${e(cfg.reportTitle)}" placeholder="미다스챕터 멤버십위원회 주간보고"></label>`,async form=>{
       const data=new FormData(form);
-      await save([upsert('settings',{...cfg,next:data.get('next'),reportTitle:data.get('reportTitle').trim(),report:data.get('report').trim()})]);
+      await save([upsert('settings',{...cfg,next:data.get('next'),reportTitle:data.get('reportTitle').trim()})]);
       meeting=data.get('next');
       render();
     });
@@ -254,9 +266,27 @@ function render(){
   else body=generic(id);
   app.innerHTML=header()+`<main id="main">${body}</main>`+nav();
 }
+async function updateReport(date){
+  clearReport();
+  const revision=reportRevision;
+  const image=dialog.querySelector('#report-image');
+  const buttons=[...dialog.querySelectorAll('.report-actions button')];
+  buttons.forEach(button=>button.disabled=true);
+  image.hidden=true;
+  image.removeAttribute('src');
+  const text=reportFor(state,date);
+  const blob=await reportPng(text);
+  if(revision!==reportRevision||!dialog.open) return;
+  reportFile=new File([blob],`midas-attendance-${date}.png`,{type:'image/png'});
+  reportUrl=URL.createObjectURL(reportFile);
+  image.src=reportUrl;
+  image.alt=text;
+  image.hidden=false;
+  buttons.forEach(button=>button.disabled=false);
+}
 function showReport(){
-  report=reportFor(state,meeting);
-  modal('멤버십위원회 주간보고',`<label class="date-field">보고 날짜 <input id="report-date" type="date" value="${e(meeting)}"></label><pre class="report" id="report-text">${e(report)}</pre><div class="toolbar">${btn('보고서 복사','copy','primary')}${btn('공유','share')}</div>`);
+  modal('주간회의 출결 보고',`<label class="date-field">주간회의 날짜 <input id="report-date" type="date" value="${e(meeting)}"></label><img class="report-image" id="report-image" hidden><div class="toolbar report-actions">${btn('이미지 다운로드','download-report','primary')}${btn('이미지 공유','share-report')}</div>`);
+  return updateReport(meeting);
 }
 async function action(value){
   const [type,a,b]=value.split(':');
@@ -292,12 +322,22 @@ async function action(value){
   }
   if(type==='visitlink'){closeDialog();return go('visitors');}
   if(type==='bulk') return modal('전체 멤버 출석 처리','<p>현재 미확인인 활동 멤버를 정상 출석으로 기록합니다. 기존 출결과 승인된 병가를 보존합니다.</p>',async()=>{
-    const changes=live(state.members).filter(member=>member.status==='활동'&&attendanceFor(state,meeting,member.id).status==='미확인').map(member=>upsert('attendance',{id:meeting+'-'+member.id,date:meeting,member:member.id,status:'정상 출석'}));
+    const changes=live(state.members).filter(member=>member.status==='활동'&&attendanceFor(state,meeting,member.id).status==='미확인').map(member=>{
+      const id=meeting+'-'+member.id;
+      const existing=live(state.attendance).find(record=>record.id===id);
+      return upsert('attendance',{...existing,id,date:meeting,member:member.id,status:'정상 출석'});
+    });
     if(changes.length) await save(changes);else notify('미확인 멤버가 없습니다.');
   },'일괄 출석 처리');
   if(type==='report') return showReport();
-  if(type==='copy'){await navigator.clipboard.writeText(report);return notify('보고서를 복사했습니다.');}
-  if(type==='share'){if(navigator.share) await navigator.share({text:report});else await action('copy');return;}
+  if(type==='download-report'&&reportFile){
+    const link=document.createElement('a');link.href=reportUrl;link.download=reportFile.name;link.click();return;
+  }
+  if(type==='share-report'&&reportFile){
+    const payload={files:[reportFile]};
+    if(navigator.canShare?.(payload)&&navigator.share) return navigator.share(payload);
+    return notify('이 브라우저는 이미지 공유를 지원하지 않습니다. 이미지를 다운로드해 공유하세요.');
+  }
   if(type==='audit'){
     const row=state.audit.find(item=>item.id===a);
     return modal('변경 내용',`<p>${e(labelOf(row.table))} · ${e(row.actor)} · ${e(new Date(row.date).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}))}</p><details><summary>수정 전</summary><pre>${e(JSON.stringify(row.before,null,2))}</pre></details><details open><summary>수정 후</summary><pre>${e(JSON.stringify(row.after,null,2))}</pre></details>`);
@@ -360,7 +400,7 @@ document.addEventListener('input',event=>{
 });
 document.addEventListener('change',event=>{
   if(event.target.id==='meeting'){if(event.target.value){meeting=event.target.value;render();}return;}
-  if(event.target.id==='report-date'&&event.target.value){meeting=event.target.value;report=reportFor(state,meeting);document.querySelector('#report-text').textContent=report;return;}
+  if(event.target.id==='report-date'&&event.target.value){updateReport(event.target.value).catch(error=>notify(error.message));return;}
   const form=event.target.closest('#mpe-form');
   if(form&&event.target.name.startsWith('score-')){
     const member=state.members.find(row=>row.id===mpeMember);
@@ -388,7 +428,10 @@ document.addEventListener('submit',async event=>{
   if(complete&&!assessment){error.textContent='MPE 종합 판정을 선택하세요.';return;}
   const buttons=[...form.querySelectorAll('button[name=mode]')];
   buttons.forEach(button=>button.disabled=true);
-  try {await save([upsert('mpe',{...row,...readFields(form,fields.mpe),scores,assessment,status:complete?'완료':'임시 저장'})]);}
+  try {
+    const attachments=await readAttachments(form,'mpe',row.attachments,store.demo);
+    await save([upsert('mpe',{...row,...readFields(form,fields.mpe),scores,assessment,attachments,status:complete?'완료':'임시 저장'})]);
+  }
   catch(failure){error.textContent=failure.message;buttons.forEach(button=>button.disabled=false);}
 });
 window.addEventListener('hashchange',()=>{query='';mpeMember='';render();window.scrollTo(0,0);});

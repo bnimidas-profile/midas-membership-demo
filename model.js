@@ -50,21 +50,33 @@ export function attendanceTotals(state,date,members=live(state.members).filter(r
   return {counts,both,total:members.length};
 }
 export function reportFor(state,date) {
-  const {counts,both,total}=attendanceTotals(state,date);
-  const visitors=live(state.visitors).filter(row=>row.date===date);
-  const guests=live(state.guests).filter(row=>row.date===date);
-  const lines=[`${config(state).reportTitle||'미다스챕터 멤버십위원회 주간보고'} | ${date}`,`전체 멤버 ${total}명`,statuses.map(status=>`${status} ${counts[status]}명`).join(' · ')];
-  if(both) lines.push(`지각 인원 중 조퇴 ${both}명 (위 집계에 포함)`);
-  for(const type of visitorTypes) lines.push(type+' '+['참석 예정','참석','불참'].map(status=>status+' '+visitors.filter(v=>v.type===type&&v.status===status).length+'명').join(' · '));
-  for(const type of ['디렉터','앰버서더']) lines.push(type+' '+(guests.filter(g=>g.type===type).map(g=>g.name+' '+g.status).join(', ')||'미등록'));
-  for(const [key,label] of [['admissions','신입 승인'],['renewals','갱신 승인'],['mpe','MPE 평가']]) {
-    const countsByStatus={};
-    for(const row of live(state[key]).filter(row=>row.date===date)) countsByStatus[row.status]=(countsByStatus[row.status]||0)+1;
-    lines.push(label+' '+(Object.entries(countsByStatus).map(([s,n])=>s+' '+n+'건').join(' · ')||'0건'));
+  const members=live(state.members).filter(row=>row.status==='활동');
+  const {counts,total}=attendanceTotals(state,date,members);
+  const names=Object.fromEntries(statuses.map(status=>[status,[]]));
+  for(const member of members){
+    const row=attendanceFor(state,date,member.id);
+    if(row.status==='정상 출석') continue;
+    const detail=row.status==='지각'&&row.early?' (조퇴도 해당)':'';
+    names[row.status].push(member.name+detail);
   }
-  for(const row of [...live(state.board),...live(state.other)].filter(row=>row.due===date||row.date===date)) lines.push('• '+row.name+(row.reportNote?' — '+row.reportNote:''));
-  if(config(state).report) lines.push(config(state).report);
+  const lines=[
+    config(state).reportTitle||'미다스챕터 주간회의 출결 보고',
+    `주간회의 날짜  ${date}`,`총원  ${total}명`,'',
+  ];
+  for(const status of statuses){
+    lines.push(`${status} ${counts[status]}명`);
+    if(names[status].length) lines.push(names[status].join(' · '));
+  }
+  const guests=live(state.guests).filter(row=>row.date===date);
+  for(const type of ['디렉터','앰버서더']){
+    const records=guests.filter(row=>row.type===type);
+    if(records.length) lines.push('',type+' · '+records.map(row=>row.name+' '+row.status).join(', '));
+  }
   return lines.join('\n');
+}
+function auditRecord(row){
+  if(!Array.isArray(row?.attachments)) return row;
+  return {...row,attachments:row.attachments.map(({data,...metadata})=>metadata)};
 }
 export function scoreInfo(criteria,scores={}) {
   const selected=criteria.filter((item,i)=>item.scores.includes(scores[i]));
@@ -77,7 +89,7 @@ export function applyChanges(state, changes, actor, now=new Date().toISOString()
     const before=next[table].find(item=>item.id===row.id)||null;
     const after={...row,createdBy:before?.createdBy||actor,updatedBy:actor,updatedAt:now};
     next[table]=[...next[table].filter(item=>item.id!==row.id),after];
-    next.audit.push({id:crypto.randomUUID(),table,actor,date:now,before,after});
+    next.audit.push({id:crypto.randomUUID(),table,actor,date:now,before:auditRecord(before),after:auditRecord(after)});
   }
   return next;
 }
