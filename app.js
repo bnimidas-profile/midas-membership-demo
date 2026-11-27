@@ -1,11 +1,11 @@
-import {attendanceFor,attendanceTotals,config,entries,live,localDate,menus,nextMeeting,renewalTargets,reportFor,scoreInfo,statuses} from './model.js';
+import {attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses} from './model.js';
 import {escape as e,fields,formFields,readFields} from './forms.js';
 import {openStore} from './storage.js';
 import {attachmentFields,readAttachments,reportPng} from './media.js';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
-let store,state,meeting,query='',mpeMember='',attendanceMode='meeting',historyMode='meetings';
+let store,state,meeting,query='',mpeMember='',attendanceMode='meeting',historyMode='meetings',renewalFilter='all';
 let promptInstall,reportFile,reportUrl,reportRevision=0;
 let toastTimer;
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();promptInstall=event;});
@@ -63,12 +63,15 @@ function nav(){
 const heading=(title,description='')=>`<div class="page-head"><h1>${title}</h1>${description?`<p>${description}</p>`:''}</div>`;
 const section=(title,body,extra='')=>`<section><div class="section-head"><h2>${title}</h2>${extra}</div>${body}</section>`;
 const prettyDate=date=>date?new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric',weekday:'short',timeZone:'UTC'}).format(new Date(date+'T00:00:00Z')):'미정';
-const statusColors={'정상 출석':'green','참석':'green','완료':'green','승인':'green','활동':'green','충족':'green','병가':'blue','대리인':'violet','조퇴':'teal','지각':'amber','결석':'red','불참':'red','보완 필요':'red','미확인':'gray'};
+const statusColors={'정상 출석':'green','참석':'green','완료':'green','승인':'green','조건부 승인':'amber','활동':'green','충족':'green','병가':'blue','대리인':'violet','조퇴':'teal','지각':'amber','결석':'red','불참':'red','보완 필요':'red','미확인':'gray'};
 const statusPill=status=>status?`<span class="pill ${statusColors[status]||''}">${e(status)}</span>`:'';
 function rowCard(title,sub,action,end=''){
   return `<button class="list-row" data-action="${e(action)}"><span><strong>${e(title)}</strong><small>${e(sub)}</small></span><span class="row-end">${end}<span class="chevron">›</span></span></button>`;
 }
 const urgent=()=>[...live(state.board),...live(state.issues)].filter(row=>row.priority==='긴급'&&!['완료','해결'].includes(row.status));
+function metricCard([id,label,value,unit,symbol,detail]){
+  return `<button class="metric" data-action="go:${id}" aria-label="${label} ${value}${unit}"><div class="metric-top">${icon(symbol)}<span class="chevron">↗</span></div><span class="metric-label">${label}</span><strong>${value}<small>${unit}</small></strong><span class="metric-detail">${detail}</span></button>`;
+}
 function dashboard(){
   const date=config(state).next||nextMeeting();
   const members=live(state.members).filter(row=>row.status==='활동');
@@ -82,12 +85,14 @@ function dashboard(){
     ['mpe','MPE 평가 대기',waiting.length,'명','☆','완료되지 않은 평가'],
     ['visitors','비지터 참석 예정',live(state.visitors).filter(row=>row.date===date&&row.type==='비지터'&&row.status==='참석 예정').length,'명','↗','다음 주간회의'],
     ['attendance','출결 미확인',counts['미확인'],'명','◷','다음 주간회의'],
-    ['board','진행 중인 업무',board.filter(row=>row.status==='진행 중').length,'건','▤','업무보드'],
-    ['board','완료된 업무',board.filter(row=>row.status==='완료').length,'건','✓','업무보드'],
+
   ];
   return `<div class="welcome"><div><h1>멤버십 대시보드</h1><p>미다스챕터 멤버십위원회 전용 업무관리 서비스</p></div>${statusPill(store.demo?'가상 데이터':admin()?'관리자':'위원')}</div>${store.demo?'<p class="demo-note">시연 모드 · 실제 회원 정보는 입력하지 마세요.</p>':''}
   <div class="hero"><div class="hero-art" aria-hidden="true"></div><div class="hero-info"><span class="hero-label">◷　다음 주간회의</span><h2>${prettyDate(date)}</h2><p>이번 회의 출결과 방문 일정을 정리하세요.</p></div><div class="hero-actions">${canOpen('attendance')?btn('출결 기록　→','go:attendance','hero-button'):''}${btn('주간보고 만들기　↗','report','hero-outline')}</div></div>
-  ${section('운영 현황',`<div class="metrics">${metrics.filter(([id])=>canOpen(id)).map(([id,label,value,unit,symbol,detail])=>`<button class="metric" data-action="go:${id}" aria-label="${label} ${value}${unit}"><div class="metric-top">${icon(symbol)}<span class="chevron">↗</span></div><span class="metric-label">${label}</span><strong>${value}<small>${unit}</small></strong><span class="metric-detail">${detail}</span></button>`).join('')}</div>`)}
+  ${section('운영 현황',`<div class="metrics">${metrics.filter(([id])=>canOpen(id)).map(metricCard).join('')}</div><div class="dashboard-shortcuts">${[
+    ['meetings','멤버십 회의',live(state.meetings).length,'건','▣','회의록 바로 가기'],
+    ['board','업무보드',board.length,'건','▤','전체 업무 바로 가기'],
+  ].filter(([id])=>canOpen(id)).map(metricCard).join('')}</div>`)}
   <div class="lower-grid">${section('긴급 확인 사항',urgent().length?urgent().slice(0,3).map(row=>rowCard(row.name,row.due||row.date||'일정 미정','go:alerts',statusPill('긴급'))).join(''):empty('긴급 확인 사항이 없습니다.'),btn('전체 보기','go:alerts','text-button'))}
   ${section('최근 수정 이력',state.audit.length?state.audit.slice(-3).reverse().map(row=>rowCard(row.after?.name||nameOf(row.after?.member)||labelOf(row.table),new Date(row.date).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+' · '+row.actor,'audit:'+row.id)).join(''):empty('아직 수정 이력이 없습니다.'),canOpen('history')?btn('전체 보기','history:all','text-button'):'')}</div>`;
 }
@@ -96,13 +101,16 @@ function allMenus(){
   return heading('전체 메뉴')+menus.map(([group,items])=>section(group,`<div class="menu-grid">${[...items].sort((a,b)=>visible().indexOf(a[0])-visible().indexOf(b[0])).filter(([id])=>visible().includes(id)||id==='settings'&&admin()).map(([id,label,symbol])=>btn(icon(symbol)+e(label),'go:'+id,'menu-tile')).join('')}</div>`)).join('');
 }
 function listContent(table){
-  const filtered=live(state[table]).filter(row=>[row.name,nameOf(row.member),row.company,row.status,row.type,row.date,row.notes].join(' ').toLowerCase().includes(query.toLowerCase()));
+  const records=live(state[table]);
+  const candidates=table==='renewals'&&renewalFilter==='conditional'?records.filter(row=>row.status==='조건부 승인'):records;
+  const filtered=candidates.filter(row=>[row.name,nameOf(row.member),row.company,row.status,row.type,row.date,row.notes].join(' ').toLowerCase().includes(query.toLowerCase()));
   return filtered.length?filtered.map(row=>rowCard(row.name||nameOf(row.member)||'기록',[row.type,row.date||row.due,row.company||row.owner].filter(Boolean).join(' · '),'edit:'+table+':'+row.id,statusPill(row.status))).join(''):empty('표시할 기록이 없습니다.');
 }
 function generic(table){
-  const targets=table==='renewals'?section('갱신 대상 멤버',renewalTargets(state).map(row=>rowCard(row.name,'만료일 '+row.expiry,'renewal:'+row.id)).join('')||empty('갱신 대상자가 없습니다.')):'';
+  const targets=table==='renewals'&&renewalFilter==='all'?section('갱신 대상 멤버',renewalTargets(state).map(row=>rowCard(row.name,'만료일 '+row.expiry,'renewal:'+row.id)).join('')||empty('갱신 대상자가 없습니다.')):'';
   const create=table==='members'&&!admin()?'':btn('＋ 새 기록','edit:'+table,'primary');
-  return heading(labelOf(table))+`<div class="toolbar">${search('이름 또는 기록 검색')}${create}</div><div id="results">${listContent(table)}</div>${targets}`;
+  const tabs=table==='renewals'?`<div class="tabs">${btn('전체 기록','renewal-filter:all',renewalFilter==='all'?'selected':'secondary')}${btn('조건부 승인','renewal-filter:conditional',renewalFilter==='conditional'?'selected':'secondary')}</div>`:'';
+  return heading(labelOf(table))+tabs+`<div class="toolbar">${search('이름 또는 기록 검색')}${create}</div><div id="results">${listContent(table)}</div>${targets}`;
 }
 function agendaFields(item={}){
   return `<fieldset class="agenda-item"><legend>안건</legend><label class="field">안건 제목<input name="agenda-title" required value="${e(item.title)}"></label><label class="field">논의 내용 및 결정 사항<textarea name="agenda-detail" rows="3">${e(item.detail)}</textarea></label>${btn('안건 제거','remove-agenda','text-button')}</fieldset>`;
@@ -274,13 +282,13 @@ async function updateReport(date){
   buttons.forEach(button=>button.disabled=true);
   image.hidden=true;
   image.removeAttribute('src');
-  const text=reportFor(state,date);
-  const blob=await reportPng(text);
+  const report=attendanceReport(state,date);
+  const blob=await reportPng(report);
   if(revision!==reportRevision||!dialog.open) return;
   reportFile=new File([blob],`midas-attendance-${date}.png`,{type:'image/png'});
   reportUrl=URL.createObjectURL(reportFile);
   image.src=reportUrl;
-  image.alt=text;
+  image.alt=reportText(report);
   image.hidden=false;
   buttons.forEach(button=>button.disabled=false);
 }
@@ -295,6 +303,7 @@ async function action(value){
   if(type==='close') return closeDialog();
   if(type==='edit') return edit(a,b);
   if(type==='mode'){attendanceMode=a;return render();}
+  if(type==='renewal-filter'){renewalFilter=a;return render();}
   if(type==='renewal') return edit('renewals','',{member:a});
   if(type==='mpe'){mpeMember=a;return render();}
   if(type==='mpeback'){mpeMember='';return render();}

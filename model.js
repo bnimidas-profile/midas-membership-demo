@@ -49,7 +49,7 @@ export function attendanceTotals(state,date,members=live(state.members).filter(r
   }
   return {counts,both,total:members.length};
 }
-export function reportFor(state,date) {
+export function attendanceReport(state,date) {
   const members=live(state.members).filter(row=>row.status==='활동');
   const {counts,total}=attendanceTotals(state,date,members);
   const names=Object.fromEntries(statuses.map(status=>[status,[]]));
@@ -59,21 +59,25 @@ export function reportFor(state,date) {
     const detail=row.status==='지각'&&row.early?' (조퇴도 해당)':'';
     names[row.status].push(member.name+detail);
   }
-  const lines=[
-    config(state).reportTitle||'미다스챕터 주간회의 출결 보고',
-    `주간회의 날짜  ${date}`,`총원  ${total}명`,'',
-  ];
-  for(const status of statuses){
-    lines.push(`${status} ${counts[status]}명`);
-    if(names[status].length) lines.push(names[status].join(' · '));
-  }
   const guests=live(state.guests).filter(row=>row.date===date);
-  for(const type of ['디렉터','앰버서더']){
-    const records=guests.filter(row=>row.type===type);
-    if(records.length) lines.push('',type+' · '+records.map(row=>row.name+' '+row.status).join(', '));
-  }
-  return lines.join('\n');
+  return {
+    title:config(state).reportTitle||'미다스챕터 주간회의 출결 보고',
+    date,total,
+    rows:statuses.map(status=>({status,count:counts[status],names:names[status]})),
+    guests:['디렉터','앰버서더'].flatMap(type=>{
+      const records=guests.filter(row=>row.type===type);
+      return records.length?[{type,names:records.map(row=>row.name+' '+row.status)}]:[];
+    }),
+  };
 }
+export function reportText({title,date,total,rows,guests}){
+  return [
+    title,`주간회의 날짜  ${date}`,`총원  ${total}명`,'',
+    ...rows.flatMap(({status,count,names})=>[`${status} ${count}명`,...(names.length?[names.join(' · ')]:[])]),
+    ...guests.map(({type,names})=>type+' · '+names.join(', ')),
+  ].join('\n');
+}
+export const reportFor=(state,date)=>reportText(attendanceReport(state,date));
 function auditRecord(row){
   if(!Array.isArray(row?.attachments)) return row;
   return {...row,attachments:row.attachments.map(({data,...metadata})=>metadata)};
