@@ -53,7 +53,8 @@ function nav(){
 const heading=(title,description='')=>`<div class="page-head"><h1>${title}</h1>${description?`<p>${description}</p>`:''}</div>`;
 const section=(title,body,extra='')=>`<section><div class="section-head"><h2>${title}</h2>${extra}</div>${body}</section>`;
 const prettyDate=date=>date?new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric',weekday:'short',timeZone:'UTC'}).format(new Date(date+'T00:00:00Z')):'미정';
-const statusPill=status=>status?`<span class="pill ${['완료','승인','참석','활동'].includes(status)?'green':''}">${e(status)}</span>`:'';
+const statusColors={'정상 출석':'green','참석':'green','완료':'green','승인':'green','활동':'green','충족':'green','병가':'blue','대리인':'violet','조퇴':'teal','지각':'amber','결석':'red','불참':'red','보완 필요':'red','미확인':'gray'};
+const statusPill=status=>status?`<span class="pill ${statusColors[status]||''}">${e(status)}</span>`:'';
 function rowCard(title,sub,action,end=''){
   return `<button class="list-row" data-action="${e(action)}"><span><strong>${e(title)}</strong><small>${e(sub)}</small></span><span class="row-end">${end}<span class="chevron">›</span></span></button>`;
 }
@@ -93,14 +94,46 @@ function generic(table){
   const create=table==='members'&&!admin()?'':btn('＋ 새 기록','edit:'+table,'primary');
   return heading(labelOf(table))+`<div class="toolbar">${search('이름 또는 기록 검색')}${create}</div><div id="results">${listContent(table)}</div>${targets}`;
 }
+function agendaFields(item={}){
+  return `<fieldset class="agenda-item"><legend>안건</legend><label class="field">안건 제목<input name="agenda-title" required value="${e(item.title)}"></label><label class="field">논의 내용 및 결정 사항<textarea name="agenda-detail" rows="3">${e(item.detail)}</textarea></label>${btn('안건 제거','remove-agenda','text-button')}</fieldset>`;
+}
+function meetingFields(row){
+  const checked=new Set(row.attendeeIds||[]);
+  const members=state.members.filter(member=>checked.has(member.id)||!member.deleted&&member.status==='활동');
+  const agendas=row.agendas?.length?row.agendas:[{title:row.agenda||(row.notes?'이전 회의 내용':''),detail:row.notes||''}];
+  return formFields(fields.meetings,row,state)+
+    `<fieldset class="meeting-attendees"><legend>참석자 체크</legend>${members.map(member=>`<label><input type="checkbox" name="attendees" value="${e(member.id)}" ${checked.has(member.id)?'checked':''}> ${e(member.name)}</label>`).join('')||'<p>멤버현황에서 활동 멤버를 등록하세요.</p>'}</fieldset>`+
+    (row.attendees?`<p class="muted">이전 참석자 기록 · ${e(row.attendees)}</p>`:'')+
+    `<h3>안건별 회의 내용</h3><div id="agendas">${agendas.map(agendaFields).join('')}</div>${btn('＋ 안건 추가','add-agenda')}`;
+}
+function guestAttendance(){
+  const records=live(state.guests);
+  const today=records.filter(row=>row.date===meeting);
+  const regular=records.filter(row=>!row.date);
+  const rows=[...regular.map(person=>({
+    person,
+    record:today.find(row=>row.guestId===person.id)||today.find(row=>!row.guestId&&row.name===person.name&&row.type===person.type),
+  })),...today.filter(row=>!regular.some(person=>row.guestId===person.id||!row.guestId&&row.name===person.name&&row.type===person.type)).map(row=>({person:row,record:row}))];
+  return rows.map(({person,record})=>`<div class="guest-row"><div><button type="button" class="text-button guest-name" data-action="edit:guests:${e(person.id)}">${e(person.name)}</button><small>${e(person.type)}</small></div><div class="guest-options" role="group" aria-label="${e(person.name)} 참석 여부">${['참석','불참'].map(status=>`<button type="button" class="secondary guest-choice ${record?.status===status?statusColors[status]:''}" aria-pressed="${record?.status===status}" data-action="guest:${e(person.id)}:${status}">${status}</button>`).join('')}</div></div>`).join('')||empty('이름을 등록하면 회의 날짜별로 참석을 체크할 수 있습니다.');
+}
 function edit(table,id='',defaults={}){
   const existing=state[table].find(row=>row.id===id);
-  if(table==='members'&&!admin()){if(existing) modal(e(existing.name),`<p>${e(existing.company)} · ${e(existing.specialty)}</p><p>갱신 만료일 ${e(existing.expiry||'미등록')}</p>`);return;}
+  if(table==='members'&&!admin()){if(existing) modal(e(existing.name),`<p>${e(existing.company)} · ${e(existing.specialty)}</p><p>챕터 직무 ${e(existing.chapterRole||'미등록')} · 갱신월 ${e(existing.renewalMonth||'미등록')}</p><p>갱신 만료일 ${e(existing.expiry||'미등록')}</p>`);return;}
   const row=existing||{id:crypto.randomUUID(),date:meeting,applied:localDate(),...defaults};
   const trash=existing&&admin()?`<div class="editor-meta">등록 ${e(existing.createdBy||'샘플')} · 수정 ${e(existing.updatedBy||'—')} ${btn('휴지통으로 이동','delete:'+table+':'+existing.id,'danger')}</div>`:'';
-  modal(e(labelOf(table))+(existing?' 수정':' 등록'),formFields(fields[table],row,state)+trash,async form=>{
+  modal(e(labelOf(table))+(existing?' 수정':' 등록'),(table==='meetings'?meetingFields(row):formFields(fields[table],row,state))+trash,async form=>{
     const updated={...row,...readFields(form,fields[table])};
     if('name' in updated&&!updated.name) throw Error('이름 또는 제목을 입력하세요.');
+    if(table==='meetings'){
+      const data=new FormData(form);
+      updated.attendeeIds=[...new Set(data.getAll('attendees'))];
+      updated.agendas=data.getAll('agenda-title').map((title,index)=>({title:title.trim(),detail:data.getAll('agenda-detail')[index].trim()}));
+      if(!updated.agendas.length||updated.agendas.some(item=>!item.title)) throw Error('안건 제목을 하나 이상 입력하세요.');
+    }
+    if(table==='guests'&&!existing){
+      if(live(state.guests).some(record=>!record.date&&record.name===updated.name&&record.type===updated.type)) throw Error('이미 등록된 이름입니다.');
+      updated.date='';
+    }
     if(table==='visitors'){
       if(updated.type!=='대리인') updated.member='';
       if(updated.type==='대리인'&&!updated.member) throw Error('대리 참석 대상 멤버를 선택하세요.');
@@ -121,9 +154,9 @@ function attendance(){
   let content;
   if(attendanceMode==='leave') content=section('병가 신청',listContent('leaves'),btn('＋ 병가 등록','edit:leaves','primary'));
   else if(attendanceMode==='stats') content=section('개인별 출결 통계',members.map(member=>rowCard(member.name,member.company,'stats:'+member.id)).join('')||empty('멤버를 먼저 등록하세요.'));
-  else content=`<div class="toolbar">${dateInput()}${btn('일괄 출석','bulk','secondary')}${btn('주간보고','report','primary')}</div><div class="counts">${statuses.map(status=>`<span>${status} <strong>${counts[status]}</strong></span>`).join('')}</div>`+
-    section('멤버 출결',members.map(member=>{const row=attendanceFor(state,meeting,member.id);return rowCard(member.name,[row.proxy,row.early&&row.status==='지각'?'조퇴도 기록됨':''].filter(Boolean).join(' · '),'attendance:'+member.id,statusPill(row.status));}).join('')||empty('멤버를 먼저 등록하세요.'))+
-    section('디렉터 · 앰버서더',live(state.guests).filter(row=>row.date===meeting).map(row=>rowCard(row.name,row.type,'edit:guests:'+row.id,statusPill(row.status))).join('')||empty('등록된 참석자가 없습니다.'),btn('＋ 참석자 등록','edit:guests'));
+  else content=`<div class="toolbar">${dateInput()}${btn('일괄 출석','bulk','secondary')}${btn('주간보고','report','primary')}</div><div class="counts">${statuses.map(status=>`<span class="pill ${statusColors[status]}">${status} <strong>${counts[status]}</strong></span>`).join('')}</div>`+
+    section('디렉터 · 앰버서더',guestAttendance(),btn('＋ 이름 등록','edit:guests'))+
+    section('멤버 출결',members.map(member=>{const row=attendanceFor(state,meeting,member.id);return rowCard(member.name,[row.proxy,row.early&&row.status==='지각'?'조퇴도 기록됨':''].filter(Boolean).join(' · '),'attendance:'+member.id,statusPill(row.status));}).join('')||empty('멤버를 먼저 등록하세요.'));
   return heading('출결·병가','회의 날짜별 출결과 개인별 이력을 관리합니다.')+`<div class="tabs">${[['meeting','주간 출결'],['leave','병가'],['stats','개인 통계']].map(([id,label])=>btn(label,'mode:'+id,attendanceMode===id?'selected':'secondary')).join('')}</div>`+content;
 }
 function stats(member,months=1){
@@ -143,7 +176,7 @@ function mpeList(){
   return members.filter(row=>row.name.toLowerCase().includes(query.toLowerCase())).map(row=>{
     const evaluation=live(state.mpe).find(m=>m.member===row.id&&m.cycle===row.expiry);
     const info=evaluation?scoreInfo(evaluation.criteria,evaluation.scores):null;
-    return rowCard(row.name,'만료일 '+(row.expiry||'미등록')+(info?' · '+info.answered+'/'+evaluation.criteria.length+' 항목':''),'mpe:'+row.id,statusPill(evaluation?.status||'미완료'));
+    return rowCard(row.name,'만료일 '+(row.expiry||'미등록')+(info?' · '+info.answered+'/'+evaluation.criteria.length+' 항목':''),'mpe:'+row.id,statusPill(evaluation?.assessment)+statusPill(evaluation?.status||'미완료'));
   }).join('')||empty('조건에 맞는 갱신 대상자가 없습니다.');
 }
 function mpeScreen(){
@@ -157,7 +190,7 @@ function mpeScreen(){
   return `${btn('← 평가 대상 목록','mpeback','text-button')}${heading(e(member.name),'갱신 MPE 평가')}${!row.confirmed?'<div class="notice">임시 평가표입니다. 실제 8개 항목과 배점을 확인한 뒤 설정에서 교체하세요.</div>':''}
     <form id="mpe-form" data-member="${e(member.id)}"><div class="panel eval-progress"><div><strong id="score">${info.total} / ${info.max}점</strong><span id="progress-label">${info.answered} / ${row.criteria.length} 항목</span></div><progress id="progress" value="${info.answered}" max="${row.criteria.length||1}"></progress></div>
     ${row.criteria.map((item,i)=>`<fieldset class="panel criterion"><legend>${e(item.name)}</legend><div class="score-options">${item.scores.map(score=>`<label><input type="radio" name="score-${i}" value="${e(score)}" ${row.scores[i]===score?'checked':''}><span>${e(score)}</span></label>`).join('')}</div></fieldset>`).join('')}
-    <div class="panel form-panel">${formFields(fields.mpe,row,state)}</div><div class="toolbar">${btn('출결 이력','stats:'+member.id)}${btn('평가 이력','mpehistory:'+member.id)}<button name="mode" value="draft" class="secondary">임시 저장</button><button name="mode" value="complete" class="primary">완료 처리</button></div><p class="form-error" role="alert"></p></form>`;
+    <div class="panel form-panel"><fieldset class="assessment"><legend>MPE 종합 판정</legend><div class="score-options">${['충족','보완 필요'].map(value=>`<label><input type="radio" name="assessment" value="${value}" ${row.assessment===value?'checked':''}><span class="${statusColors[value]}">${value}</span></label>`).join('')}</div></fieldset>${formFields(fields.mpe,row,state)}</div><div class="toolbar">${btn('출결 이력','stats:'+member.id)}${btn('평가 이력','mpehistory:'+member.id)}<button name="mode" value="draft" class="secondary">임시 저장</button><button name="mode" value="complete" class="primary">완료 처리</button></div><p class="form-error" role="alert"></p></form>`;
 }
 function readScores(form,criteria){
   const data=new FormData(form);
@@ -237,6 +270,20 @@ async function action(value){
   if(type==='mpeback'){mpeMember='';return render();}
   if(type==='history'){historyMode=a;return go('history');}
   if(type==='stats') return stats(a,Number(b)||1);
+  if(type==='guest'){
+    const person=live(state.guests).find(row=>row.id===a);
+    if(!person||!['참석','불참'].includes(b)) return;
+    const records=live(state.guests).filter(row=>row.date===meeting);
+    const row=person.date?person:records.find(record=>record.guestId===person.id)||records.find(record=>!record.guestId&&record.name===person.name&&record.type===person.type);
+    if(row?.status===b) return;
+    return save([upsert('guests',{...row,id:row?.id||crypto.randomUUID(),guestId:person.date?row?.guestId:person.id,name:person.name,type:person.type,date:meeting,status:b})]);
+  }
+  if(type==='add-agenda'){
+    const list=dialog.querySelector('#agendas');
+    list.insertAdjacentHTML('beforeend',agendaFields());
+    list.lastElementChild.querySelector('input').focus();
+    return;
+  }
   if(type==='attendance'){
     const row=attendanceFor(state,meeting,a);
     if(row.status==='대리인'&&live(state.visitors).some(v=>v.member===a&&v.date===meeting&&v.type==='대리인'&&v.status==='참석')) return modal('대리인 연동',`<p>${e(row.proxy)} 님을 참석 처리한 비지터 기록과 연동되어 있습니다.</p>${btn('비지터관리','visitlink')}`);
@@ -284,6 +331,7 @@ async function action(value){
     if(!file||file.size>8000000) throw Error('8MB 이하의 백업 파일을 선택하세요.');
     const backup=JSON.parse(await file.text());
     const tables=[...Object.keys(fields),'settings'];
+    if(backup.privateRoster&&store.demo) throw Error('실제 명단은 승인된 공동 사용 환경에서만 등록할 수 있습니다.');
     if(backup.version!==1||!tables.every(table=>Array.isArray(backup.state?.[table]))) throw Error('지원하는 백업 파일이 아닙니다.');
     const changes=tables.flatMap(table=>backup.state[table].map(row=>upsert(table,row)));
     if(changes.length>1000||changes.some(({row})=>!row||typeof row!=='object'||!(/^[a-zA-Z0-9_-]{1,128}$/).test(row.id))) throw Error('백업의 기록 형식 또는 개수 제한을 확인하세요.');
@@ -297,6 +345,12 @@ async function action(value){
 }
 document.addEventListener('click',event=>{
   const button=event.target.closest('[data-action]');
+  if(button?.dataset.action==='remove-agenda'){
+    const list=dialog.querySelector('#agendas');
+    if(list.children.length>1) button.closest('fieldset').remove();
+    else notify('안건을 하나 이상 남겨 주세요.');
+    return;
+  }
   if(button) action(button.dataset.action).catch(error=>{if(error.name!=='AbortError')notify(error.message);});
 });
 document.addEventListener('input',event=>{
@@ -330,9 +384,11 @@ document.addEventListener('submit',async event=>{
   const error=form.querySelector('.form-error');
   if(complete&&scoreInfo(row.criteria,scores).answered!==8){error.textContent='완료하려면 8개 항목을 모두 평가하세요.';return;}
   if(complete&&!form.elements.owner.value.trim()){error.textContent='평가 담당 위원을 입력하세요.';return;}
+  const assessment=new FormData(form).get('assessment')||'';
+  if(complete&&!assessment){error.textContent='MPE 종합 판정을 선택하세요.';return;}
   const buttons=[...form.querySelectorAll('button[name=mode]')];
   buttons.forEach(button=>button.disabled=true);
-  try {await save([upsert('mpe',{...row,...readFields(form,fields.mpe),scores,status:complete?'완료':'임시 저장'})]);}
+  try {await save([upsert('mpe',{...row,...readFields(form,fields.mpe),scores,assessment,status:complete?'완료':'임시 저장'})]);}
   catch(failure){error.textContent=failure.message;buttons.forEach(button=>button.disabled=false);}
 });
 window.addEventListener('hashchange',()=>{query='';mpeMember='';render();window.scrollTo(0,0);});
