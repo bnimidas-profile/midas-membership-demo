@@ -1,4 +1,4 @@
-import {attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses} from './model.js';
+import {attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js';
 import {escape as e,fields,formFields,readFields} from './forms.js';
 import {openStore} from './storage.js';
 import {attachmentFields,readAttachments,reportPng} from './media.js';
@@ -119,7 +119,8 @@ function meetingFields(row){
   return formFields(fields.meetings,row,state)+
     `<fieldset class="meeting-attendees"><legend>참석자 체크</legend>${members.map(member=>`<label><input type="checkbox" name="attendees" value="${e(member.id)}" ${checked.has(member.id)?'checked':''}> ${e(member.name)}</label>`).join('')||'<p>멤버현황에서 활동 멤버를 등록하세요.</p>'}</fieldset>`+
     (row.attendees?`<p class="muted">이전 참석자 기록 · ${e(row.attendees)}</p>`:'')+
-    `<h3>안건별 회의 내용</h3><div id="agendas">${agendas.map(agendaFields).join('')}</div>${btn('＋ 안건 추가','add-agenda')}`;
+    `<h3>안건별 회의 내용</h3><div id="agendas">${agendas.map(agendaFields).join('')}</div>${btn('＋ 안건 추가','add-agenda')}`+
+    (row.sourceHistory?.length?`<details><summary>원본 수정 이력 ${row.sourceHistory.length}건</summary>${row.sourceHistory.map(change=>`<p>${e(change.date)} · ${e(change.field)}<br>수정 전 · ${e(change.before)}<br>수정 후 · ${e(change.after)}</p>`).join('')}</details>`:'');
 }
 function guestAttendance(){
   const records=live(state.guests);
@@ -202,11 +203,12 @@ function mpeScreen(){
   if(!member) return empty('멤버를 찾을 수 없습니다.');
   const settings=config(state);
   const existing=live(state.mpe).find(row=>row.member===member.id&&row.cycle===member.expiry);
-  const row=existing||{id:crypto.randomUUID(),member:member.id,cycle:member.expiry,date:localDate(),criteria:settings.criteria,confirmed:settings.confirmed,scores:{}};
+  const row=existing||{id:crypto.randomUUID(),member:member.id,cycle:member.expiry,date:localDate(),criteria:settings.criteria,confirmed:settings.confirmed,mpeMinimum:settings.mpeMinimum,scores:{}};
   const info=scoreInfo(row.criteria,row.scores);
+  const minimum=row.mpeMinimum;
   return `${btn('← 평가 대상 목록','mpeback','text-button')}${heading(e(member.name),'갱신 MPE 평가')}${!row.confirmed?'<div class="notice">임시 평가표입니다. 실제 8개 항목과 배점을 확인한 뒤 설정에서 교체하세요.</div>':''}
-    <form id="mpe-form" data-member="${e(member.id)}"><div class="panel eval-progress"><div><strong id="score">${info.total} / ${info.max}점</strong><span id="progress-label">${info.answered} / ${row.criteria.length} 항목</span></div><progress id="progress" value="${info.answered}" max="${row.criteria.length||1}"></progress></div>
-    ${row.criteria.map((item,i)=>`<fieldset class="panel criterion"><legend>${e(item.name)}</legend><div class="score-options">${item.scores.map(score=>`<label><input type="radio" name="score-${i}" value="${e(score)}" ${row.scores[i]===score?'checked':''}><span>${e(score)}</span></label>`).join('')}</div></fieldset>`).join('')}
+    <form id="mpe-form" data-member="${e(member.id)}"><div class="panel eval-progress"><div><strong id="score">${minimum?'충족 '+info.total+' / '+row.criteria.length+' 항목':info.total+' / '+info.max+'점'}</strong><span id="progress-label">${info.answered} / ${row.criteria.length} 항목</span></div><progress id="progress" value="${info.answered}" max="${row.criteria.length||1}"></progress>${minimum?`<p>스프레드시트 기준 · ${minimum}개 이상 충족</p>`:''}</div>
+    ${row.criteria.map((item,i)=>`<fieldset class="panel criterion"><legend>${e(item.name)}</legend><div class="score-options">${item.scores.map(score=>`<label><input type="radio" name="score-${i}" value="${e(score)}" ${row.scores[i]===score?'checked':''}><span>${minimum?(score===1?'충족':'미충족'):e(score)}</span></label>`).join('')}</div></fieldset>`).join('')}
     <div class="panel form-panel"><fieldset class="assessment"><legend>MPE 종합 판정</legend><div class="score-options">${['충족','보완 필요'].map(value=>`<label><input type="radio" name="assessment" value="${value}" ${row.assessment===value?'checked':''}><span class="${statusColors[value]}">${value}</span></label>`).join('')}</div></fieldset>${formFields(fields.mpe,row,state)}${attachmentFields('mpe',row,store.demo)}</div><div class="toolbar">${btn('출결 이력','stats:'+member.id)}${btn('평가 이력','mpehistory:'+member.id)}<button name="mode" value="draft" class="secondary">임시 저장</button><button name="mode" value="complete" class="primary">완료 처리</button></div><p class="form-error" role="alert"></p></form>`;
 }
 function readScores(form,criteria){
@@ -232,7 +234,7 @@ function settingsModal(kind){
         if(!name||tokens.length>30||tokens.some(token=>!/^\d{1,4}(\.\d{1,2})?$/.test(token))) throw Error('항목명과 올바른 배점을 입력하세요.');
         return {name,scores:[...new Set(tokens.map(Number))].sort((a,b)=>a-b)};
       });
-      await save([upsert('settings',{...cfg,criteria,confirmed:data.has('confirmed')})]);
+      await save([upsert('settings',{...cfg,criteria,confirmed:data.has('confirmed'),mpeMinimum:criteria.every(item=>JSON.stringify(item.scores)==='[0,1]')?cfg.mpeMinimum:undefined})]);
     });
   }
   if(kind==='preferences'){
@@ -372,16 +374,18 @@ async function action(value){
     return modal(type==='delete'?'휴지통으로 이동':'기록 복구','<p>변경 이력에 작업을 기록합니다.</p>',()=>save([upsert(a,{...row,deleted:type==='delete'})]),type==='delete'?'휴지통으로 이동':'기록 복구');
   }
   if(type==='trash') return modal('휴지통',Object.keys(fields).flatMap(table=>(state[table]||[]).filter(row=>row.deleted).map(row=>rowCard(row.name||nameOf(row.member)||labelOf(table),labelOf(table),'restore:'+table+':'+row.id))).join('')||empty('삭제된 기록이 없습니다.'));
-  if(type==='import') return modal('백업 기록 복구','<p>백업에 있는 기록을 현재 작업 공간에 병합합니다. 같은 ID의 기록은 백업 내용으로 갱신하며, 변경 이력이 새로 남습니다. 현재에만 있는 기록은 보존됩니다.</p><label class="field">백업 파일 <input name="file" type="file" accept=".json,application/json" required></label>',async form=>{
+  if(type==='import') return modal('백업 기록 복구','<p>백업에 있는 기록을 현재 작업 공간에 병합합니다. 같은 ID의 기록은 백업 내용으로 갱신하며, 변경 이력이 새로 남습니다. 현재에만 있는 기록은 보존됩니다.</p><label class="field">백업 파일 <input name="file" type="file" accept=".json,application/json"></label><label class="field">또는 JSON 내용 붙여넣기<textarea name="backupText" rows="4" spellcheck="false"></textarea></label>',async form=>{
     const file=form.elements.file.files[0];
-    if(!file||file.size>8000000) throw Error('8MB 이하의 백업 파일을 선택하세요.');
-    const backup=JSON.parse(await file.text());
+    const text=file?await file.text():form.elements.backupText.value.trim();
+    if(!text||new Blob([text]).size>8000000) throw Error('8MB 이하의 백업 파일을 선택하거나 JSON 내용을 붙여넣으세요.');
+    const backup=JSON.parse(text);
     const tables=[...Object.keys(fields),'settings'];
-    if(backup.privateRoster&&store.demo) throw Error('실제 명단은 승인된 공동 사용 환경에서만 등록할 수 있습니다.');
+    if((backup.privateRoster||backup.workbookImport)&&store.demo) throw Error('실제 명단은 승인된 공동 사용 환경에서만 등록할 수 있습니다.');
     if(backup.version!==1||!tables.every(table=>Array.isArray(backup.state?.[table]))) throw Error('지원하는 백업 파일이 아닙니다.');
     const changes=tables.flatMap(table=>backup.state[table].map(row=>upsert(table,row)));
     if(changes.length>1000||changes.some(({row})=>!row||typeof row!=='object'||!(/^[a-zA-Z0-9_-]{1,128}$/).test(row.id))) throw Error('백업의 기록 형식 또는 개수 제한을 확인하세요.');
-    if(changes.length) await save(changes);
+    const pending=backup.workbookImport?workbookChanges(state,changes,backup.workbookCriteria):changes;
+    if(pending.length) await save(pending);else notify('이미 가져온 기록입니다.');
   },'병합 복구');
   if(type==='backup'){
     const url=URL.createObjectURL(new Blob([JSON.stringify({version:1,state},null,2)],{type:'application/json'}));
@@ -410,9 +414,10 @@ document.addEventListener('change',event=>{
   const form=event.target.closest('#mpe-form');
   if(form&&event.target.name.startsWith('score-')){
     const member=state.members.find(row=>row.id===mpeMember);
-    const criteria=live(state.mpe).find(row=>row.member===mpeMember&&row.cycle===member.expiry)?.criteria||config(state).criteria;
+    const evaluation=live(state.mpe).find(row=>row.member===mpeMember&&row.cycle===member.expiry)||config(state);
+    const criteria=evaluation.criteria;
     const info=scoreInfo(criteria,readScores(form,criteria));
-    document.querySelector('#score').textContent=info.total+' / '+info.max+'점';
+    document.querySelector('#score').textContent=evaluation.mpeMinimum?'충족 '+info.total+' / '+criteria.length+' 항목':info.total+' / '+info.max+'점';
     document.querySelector('#progress-label').textContent=info.answered+' / '+criteria.length+' 항목';
     document.querySelector('#progress').value=info.answered;
   }
@@ -425,7 +430,7 @@ document.addEventListener('submit',async event=>{
   const complete=submitter?.value==='complete';
   const member=state.members.find(row=>row.id===form.dataset.member);
   const cfg=config(state);
-  const row=live(state.mpe).find(record=>record.member===member.id&&record.cycle===member.expiry)||{id:crypto.randomUUID(),member:member.id,cycle:member.expiry,criteria:cfg.criteria,confirmed:cfg.confirmed};
+  const row=live(state.mpe).find(record=>record.member===member.id&&record.cycle===member.expiry)||{id:crypto.randomUUID(),member:member.id,cycle:member.expiry,criteria:cfg.criteria,confirmed:cfg.confirmed,mpeMinimum:cfg.mpeMinimum};
   const scores=readScores(form,row.criteria);
   const error=form.querySelector('.form-error');
   if(complete&&scoreInfo(row.criteria,scores).answered!==8){error.textContent='완료하려면 8개 항목을 모두 평가하세요.';return;}

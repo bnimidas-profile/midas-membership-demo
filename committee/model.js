@@ -78,6 +78,37 @@ export function reportText({title,date,total,rows,guests}){
   ].join('\n');
 }
 export const reportFor=(state,date)=>reportText(attendanceReport(state,date));
+export function workbookChanges(state,changes,criteria){
+  const normalize=name=>String(name||'').normalize('NFC').replace(/\s+/g,'');
+  const idMap=new Map();
+  for(const {row} of changes.filter(change=>change.table==='members')){
+    const names=new Set([row.name,...(row.sourceAliases||[])].map(normalize));
+    const matches=live(state.members).filter(member=>member.id===row.id||names.has(normalize(member.name)));
+    if(matches.length>1) throw Error('같은 회원으로 보이는 기존 기록이 여러 개 있습니다.');
+    idMap.set(row.id,matches[0]?.id||row.id);
+  }
+  if(new Set(idMap.values()).size!==idMap.size) throw Error('여러 명단이 같은 기존 회원과 일치합니다.');
+  const output=changes.flatMap(({table,row})=>{
+    const translated={...row};
+    if(table==='members') translated.id=idMap.get(row.id);
+    for(const field of ['member','inviter']){
+      if(idMap.has(row[field])) translated[field]=idMap.get(row[field]);
+    }
+    if(Array.isArray(row.attendeeIds)) translated.attendeeIds=row.attendeeIds.map(id=>idMap.get(id)||id);
+    const before=(state[table]||[]).find(item=>item.id===translated.id);
+    if(before?.sourceWorkbook||before?.deleted) return [];
+    if(table==='mpe'&&live(state.mpe).some(item=>item.member===translated.member&&item.cycle===translated.cycle)) return [];
+    return [{table,row:table==='members'?{...before,...translated}:translated}];
+  });
+  const current=config(state);
+  if(!current.confirmed){
+    if(!Array.isArray(criteria)||criteria.length!==8||criteria.some(item=>!item?.name||JSON.stringify(item.scores)!=='[0,1]')) {
+      throw Error('스프레드시트 평가표 형식이 올바르지 않습니다.');
+    }
+    output.push({table:'settings',row:{...current,criteria,confirmed:true,mpeMinimum:5}});
+  }
+  return output;
+}
 function auditRecord(row){
   if(!Array.isArray(row?.attachments)) return row;
   return {...row,attachments:row.attachments.map(({data,...metadata})=>metadata)};
