@@ -448,6 +448,6 @@ async function boot(){
     return;
   }
   state=store.state;meeting=config(state).next||nextMeeting();render();
-  if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(console.warn);
+  if(store.demo&&'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(console.warn);
 }
 boot().catch(error=>{app.textContent='업무 공간을 열 수 없습니다. '+error.message;});
