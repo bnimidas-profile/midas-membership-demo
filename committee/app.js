@@ -1,11 +1,12 @@
-import {attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js';
-import {escape as e,fields,formFields,readFields} from './forms.js';
+import {chapterSchedule,memberPatchChanges,orderedMembers,upcomingMeeting,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js';
 import {openStore} from './storage.js';
 import {attachmentFields,readAttachments,reportPng} from './media.js';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
 let store,state,meeting,query='',mpeMember='',attendanceMode='meeting',historyMode='meetings',renewalFilter='all';
+let meetingPinned=false,lastUpcoming;
 let promptInstall,reportFile,reportUrl,reportRevision=0;
 let toastTimer;
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();promptInstall=event;});
@@ -19,7 +20,7 @@ const empty=label=>`<div class="empty">${label}</div>`;
 const search=label=>`<label class="search"><span aria-hidden="true">⌕</span><input type="search" id="search" placeholder="${label}" aria-label="${label}" value="${e(query)}"></label>`;
 const dateInput=()=>`<label class="date-field">주간회의 날짜 <input type="date" id="meeting" value="${e(meeting)}"></label>`;
 const visible=()=>config(state).menu.filter(id=>entries.some(([key])=>key===id));
-const canOpen=id=>['home','all','alerts'].includes(id)||id==='history'&&admin()||id==='settings'&&admin()||visible().includes(id);
+const canOpen=id=>['home','all','alerts','schedule'].includes(id)||id==='history'&&admin()||id==='settings'&&admin()||visible().includes(id);
 function notify(message){
   const toast=document.querySelector('#toast');
   toast.textContent=message;
@@ -35,7 +36,7 @@ function closeDialog(){
   if(dialog.querySelector('#report-image')) clearReport();
   if(dialog.open) dialog.close();
 }
-dialog.addEventListener('close',()=>{if(!dialog.open&&dialog.querySelector('#report-image')) clearReport();});
+dialog.addEventListener('close',()=>{if(!dialog.open&&dialog.querySelector('#report-image')) clearReport();updateMeetingDate();});
 function modal(title,body,onSubmit,submit='저장'){
   closeDialog();
   dialog.innerHTML=`<form><div class="dialog-head"><h2>${title}</h2>${btn('×','close','icon-button')}</div><div class="dialog-body">${body}</div><div class="form-error" role="alert"></div><footer>${btn('닫기','close')} ${onSubmit?`<button class="primary" type="submit">${submit}</button>`:''}</footer></form>`;
@@ -74,7 +75,7 @@ function metricCard([id,label,value,unit,symbol,detail]){
   return `<button class="metric" data-action="go:${id}" aria-label="${label} ${value}${unit}"><div class="metric-top">${icon(symbol)}<span class="chevron">↗</span></div><span class="metric-label">${label}</span><strong>${value}<small>${unit}</small></strong><span class="metric-detail">${detail}</span></button>`;
 }
 function dashboard(){
-  const date=config(state).next||nextMeeting();
+  const date=upcomingMeeting(state);
   const members=live(state.members).filter(row=>row.status==='활동');
   const board=live(state.board);
   const waiting=renewalTargets(state).filter(member=>!live(state.mpe).some(row=>row.member===member.id&&row.cycle===member.expiry&&row.status==='완료'));
@@ -86,7 +87,7 @@ function dashboard(){
 
   ];
   return `<div class="welcome"><div><h1>멤버십 대시보드</h1><p>미다스챕터 멤버십위원회 전용 업무관리 서비스</p></div>${statusPill(store.demo?'가상 데이터':admin()?'관리자':'위원')}</div>${store.demo?'<p class="demo-note">시연 모드 · 실제 회원 정보는 입력하지 마세요.</p>':''}
-  <div class="hero"><div class="hero-art" aria-hidden="true"></div><div class="hero-info"><span class="hero-label">◷　다음 주간회의</span><h2>${prettyDate(date)}</h2><p>이번 회의 출결과 방문 일정을 정리하세요.</p></div><div class="hero-actions">${canOpen('attendance')?btn('출결 기록　→','go:attendance','hero-button'):''}${btn('주간보고 만들기　↗','report','hero-outline')}</div></div>
+  <div class="hero"><div class="hero-art" aria-hidden="true"></div><div class="hero-info"><span class="hero-label">◷　다음 주간회의</span><h2>${prettyDate(date)} · ${weeklyMeetingTime}</h2><p>한국시간 · 주간회의</p></div><div class="hero-actions">${canOpen('attendance')?btn('출결 기록　→','go:attendance','hero-button'):''}${btn('주간보고 만들기　↗','report','hero-outline')}${btn('챕터 일정표　↗','go:schedule','hero-outline')}</div></div>
   ${section('운영 현황',`<div class="metrics">${metrics.filter(([id])=>canOpen(id)).map(metricCard).join('')}</div><div class="dashboard-shortcuts">${[
     ['meetings','멤버십 회의',live(state.meetings).length,'건','▣','회의록 바로 가기'],
     ['board','업무보드',board.length,'건','▤','전체 업무 바로 가기'],
@@ -96,13 +97,13 @@ function dashboard(){
 }
 const labelOf=id=>entries.find(([key])=>key===id)?.[1]||({leaves:'병가',guests:'디렉터·앰버서더'})[id]||id;
 function allMenus(){
-  return heading('전체 메뉴')+menus.map(([group,items])=>section(group,`<div class="menu-grid">${[...items].sort((a,b)=>visible().indexOf(a[0])-visible().indexOf(b[0])).filter(([id])=>visible().includes(id)||id==='settings'&&admin()).map(([id,label,symbol])=>btn(icon(symbol)+e(label),'go:'+id,'menu-tile')).join('')}</div>`)).join('');
+  return heading('전체 메뉴')+`<div class="toolbar">${btn('챕터 일정표','go:schedule')}</div>`+menus.map(([group,items])=>section(group,`<div class="menu-grid">${[...items].sort((a,b)=>visible().indexOf(a[0])-visible().indexOf(b[0])).filter(([id])=>visible().includes(id)||id==='settings'&&admin()).map(([id,label,symbol])=>btn(icon(symbol)+e(label),'go:'+id,'menu-tile')).join('')}</div>`)).join('');
 }
 function listContent(table){
-  const records=live(state[table]);
+  const records=table==='members'?orderedMembers(state):live(state[table]).filter(row=>table!=='other'||row.kind!=='chapter-schedule');
   const candidates=table==='renewals'&&renewalFilter==='conditional'?records.filter(row=>row.status==='조건부 승인'):records;
-  const filtered=candidates.filter(row=>[row.name,nameOf(row.member),row.company,row.status,row.type,row.date,row.notes].join(' ').toLowerCase().includes(query.toLowerCase()));
-  return filtered.length?filtered.map(row=>rowCard(row.name||nameOf(row.member)||'기록',[row.type,row.date||row.due,row.company||row.owner].filter(Boolean).join(' · '),'edit:'+table+':'+row.id,statusPill(row.status))).join(''):empty('표시할 기록이 없습니다.');
+  const filtered=candidates.filter(row=>[row.name,nameOf(row.member),row.listeningNumber,row.company,row.status,row.type,row.date,row.notes].join(' ').toLowerCase().includes(query.toLowerCase()));
+  return filtered.length?filtered.map(row=>rowCard((table==='members'&&row.listeningNumber?row.listeningNumber+'. ':'')+(row.name||nameOf(row.member)||'기록'),[row.type,row.date||row.due,row.company||row.owner].filter(Boolean).join(' · '),'edit:'+table+':'+row.id,statusPill(row.status))).join(''):empty('표시할 기록이 없습니다.');
 }
 function generic(table){
   const targets=table==='renewals'&&renewalFilter==='all'?section('갱신 대상 멤버',renewalTargets(state).map(row=>rowCard(row.name,'만료일 '+row.expiry,'renewal:'+row.id)).join('')||empty('갱신 대상자가 없습니다.')):'';
@@ -123,7 +124,7 @@ function meetingFields(row){
   const members=meetingParticipants(state);
   const agendas=row.agendas?.length?row.agendas:[{title:row.agenda||(row.notes?'이전 회의 내용':''),detail:row.notes||''}];
   return formFields(fields.meetings,row,state)+
-    `<fieldset class="meeting-attendees"><legend>참석자 체크 · 부의장 및 멤버십위원</legend>${members.map(member=>`<label><input type="checkbox" name="attendees" value="${e(member.id)}" ${checked.has(member.id)?'checked':''}> ${e(member.name)} <small>${e(member.chapterRole)}</small></label>`).join('')||'<p>멤버현황에서 부의장 또는 멤버십 직무를 지정하세요.</p>'}</fieldset>`+
+    `<fieldset class="meeting-attendees"><legend>참석자 체크 · 부의장 및 멤버십위원</legend>${members.map(member=>`<label><input type="checkbox" name="attendees" value="${e(member.id)}" ${checked.has(member.id)?'checked':''}> ${e(member.name)} <small>${e([member.chapterRole,member.committeeDuty].filter(Boolean).join(' · '))}</small></label>`).join('')||'<p>멤버현황에서 부의장 또는 멤버십 직무를 지정하세요.</p>'}</fieldset>`+
     (row.attendees?`<p class="muted">이전 참석자 기록 · ${e(row.attendees)}</p>`:'')+
     `<h3>안건별 회의 내용</h3><div id="agendas">${agendas.map(agendaFields).join('')}</div>${btn('＋ 안건 추가','add-agenda')}`+
     (row.sourceHistory?.length?`<details><summary>원본 수정 이력 ${row.sourceHistory.length}건</summary>${row.sourceHistory.map(change=>`<p>${e(change.date)} · ${e(change.field)}<br>수정 전 · ${e(change.before)}<br>수정 후 · ${e(change.after)}</p>`).join('')}</details>`:'');
@@ -140,12 +141,18 @@ function guestAttendance(){
 }
 function edit(table,id='',defaults={}){
   const existing=state[table].find(row=>row.id===id);
-  if(table==='members'&&!admin()){if(existing) modal(e(existing.name),`<p>${e(existing.company)} · ${e(existing.specialty)}</p><p>챕터 직무 ${e(existing.chapterRole||'미등록')} · 갱신월 ${e(existing.renewalMonth||'미등록')}</p><p>갱신 만료일 ${e(existing.expiry||'미등록')}</p>`);return;}
+  if(table==='members'&&!admin()){if(existing) modal(e(existing.name),`<p>${e(existing.company)} · ${e(existing.specialty)}</p><p>경청표 번호 ${e(existing.listeningNumber||'미등록')} · 챕터 직무 ${e(existing.chapterRole||'미등록')} · 갱신월 ${e(existing.renewalMonth||'미등록')}</p><p>갱신 만료일 ${e(existing.expiry||'미등록')}</p>`);return;}
   const row=existing||{id:crypto.randomUUID(),date:meeting,applied:localDate(),...defaults};
+  const isSchedule=table==='other'&&row.kind==='chapter-schedule';
+  const inputs=isSchedule?scheduleFields:fields[table];
   const trash=existing&&admin()?`<div class="editor-meta">등록 ${e(existing.createdBy||'샘플')} · 수정 ${e(existing.updatedBy||'—')} ${btn('휴지통으로 이동','delete:'+table+':'+existing.id,'danger')}</div>`:'';
-  modal(e(labelOf(table))+(existing?' 수정':' 등록'),(table==='meetings'?meetingFields(row):formFields(fields[table],row,state))+attachmentFields(table,row,store.demo)+trash,async form=>{
-    const updated={...row,...readFields(form,fields[table])};
+  modal(e(isSchedule?'챕터 일정':labelOf(table))+(existing?' 수정':' 등록'),(table==='meetings'?meetingFields(row):formFields(inputs,row,state))+attachmentFields(table,row,store.demo)+trash,async form=>{
+    const updated={...row,...readFields(form,inputs)};
     if('name' in updated&&!updated.name) throw Error('이름 또는 제목을 입력하세요.');
+    if(table==='members'&&updated.listeningNumber!==null){
+      if(!Number.isInteger(updated.listeningNumber)||updated.listeningNumber<1) throw Error('경청표 번호는 1 이상의 정수로 입력하세요.');
+      if(live(state.members).some(member=>member.id!==row.id&&Number(member.listeningNumber)===updated.listeningNumber)) throw Error('이미 사용 중인 경청표 번호입니다.');
+    }
     if(table==='meetings'){
       const data=new FormData(form);
       const eligible=new Set(meetingParticipants(state).map(member=>member.id));
@@ -249,8 +256,7 @@ function settingsModal(kind){
     modal('회의 및 보고서 설정',`<label class="field"><span>다음 주간회의 날짜</span><input type="date" required name="next" value="${e(cfg.next||nextMeeting())}"></label><label class="field"><span>보고서 제목</span><input name="reportTitle" value="${e(cfg.reportTitle)}" placeholder="미다스챕터 멤버십위원회 주간보고"></label>`,async form=>{
       const data=new FormData(form);
       await save([upsert('settings',{...cfg,next:data.get('next'),reportTitle:data.get('reportTitle').trim()})]);
-      meeting=data.get('next');
-      render();
+      updateMeetingDate();
     });
   }
   if(kind==='menu'){
@@ -266,6 +272,25 @@ function history(){
   const rows=[...state.audit].reverse().filter(row=>historyMode==='all'||row.table==='meetings');
   return heading('회의록 수정 이력')+`<div class="tabs">${btn('회의록','history:meetings')}${btn('전체 변경','history:all')}</div>`+(rows.map(row=>rowCard(row.after?.name||nameOf(row.after?.member)||labelOf(row.table),new Date(row.date).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+' · '+row.actor,'audit:'+row.id)).join('')||empty('기록된 변경이 없습니다.'));
 }
+function schedule(){
+  const date=localDate();
+  const records=chapterSchedule(state);
+  const next=upcomingMeeting(state);
+  const regular=records.some(row=>row.type==='주간회의'&&row.date===next&&row.time===weeklyMeetingTime)?'':
+    `<article class="panel"><strong>주간회의</strong><p>${e(next)} · ${weeklyMeetingTime} · 정기 일정</p></article>`;
+  return heading('챕터 일정표','매주 수요일 08:30 · 한국시간')+
+    `<div class="toolbar">${btn('＋ 일정 등록','edit-schedule','primary')}</div>`+
+    section('예정 일정',regular+(records.filter(row=>row.date>=date).map(row=>rowCard(row.name,[row.date,row.time,row.type,row.location].filter(Boolean).join(' · '),'edit-schedule:'+row.id)).join('')||(!regular?empty('등록된 예정 일정이 없습니다.') : '')))+
+    section('지난 일정',records.filter(row=>row.date<date).reverse().map(row=>rowCard(row.name,[row.date,row.time,row.type].filter(Boolean).join(' · '),'edit-schedule:'+row.id)).join('')||empty('지난 일정이 없습니다.'));
+}
+function updateMeetingDate(){
+  if(!state||dialog.open) return;
+  const date=upcomingMeeting(state);
+  if(date===lastUpcoming) return;
+  lastUpcoming=date;
+  if(!meetingPinned) meeting=date;
+  if(['home','attendance'].includes(route())) render();
+}
 function render(){
   if(!state) return;
   const id=route();
@@ -274,6 +299,7 @@ function render(){
   else if(id==='home') body=dashboard();
   else if(id==='all') body=allMenus();
   else if(id==='attendance') body=attendance();
+  else if(id==='schedule') body=schedule();
   else if(id==='history') body=history();
   else if(id==='mpe') body=mpeScreen();
   else if(id==='settings') body=settings();
@@ -300,8 +326,9 @@ async function updateReport(date){
   buttons.forEach(button=>button.disabled=false);
 }
 function showReport(){
-  modal('주간회의 출결 보고',`<label class="date-field">주간회의 날짜 <input id="report-date" type="date" value="${e(meeting)}"></label><img class="report-image" id="report-image" hidden><div class="toolbar report-actions">${btn('이미지 다운로드','download-report','primary')}${btn('이미지 공유','share-report')}</div>`);
-  return updateReport(meeting);
+  const date=route()==='home'?upcomingMeeting(state):meeting;
+  modal('주간회의 출결 보고',`<label class="date-field">주간회의 날짜 <input id="report-date" type="date" value="${e(date)}"></label><img class="report-image" id="report-image" hidden><div class="toolbar report-actions">${btn('이미지 다운로드','download-report','primary')}${btn('이미지 공유','share-report')}</div>`);
+  return updateReport(date);
 }
 async function action(value){
   const [type,a,b]=value.split(':');
@@ -310,6 +337,7 @@ async function action(value){
   if(type==='close') return closeDialog();
   if(type==='edit') return edit(a,b);
   if(type==='mode'){attendanceMode=a;return render();}
+  if(type==='edit-schedule') return edit('other',a,{kind:'chapter-schedule',date:localDate()});
   if(type==='renewal-filter'){renewalFilter=a;return render();}
   if(type==='renewal') return edit('renewals','',{member:a});
   if(type==='mpe'){mpeMember=a;return render();}
@@ -388,7 +416,12 @@ async function action(value){
     if(!text||new Blob([text]).size>8000000) throw Error('8MB 이하의 백업 파일을 선택하거나 JSON 내용을 붙여넣으세요.');
     const backup=JSON.parse(text);
     const tables=[...Object.keys(fields),'settings'];
-    if((backup.privateRoster||backup.workbookImport)&&store.demo) throw Error('실제 명단은 승인된 공동 사용 환경에서만 등록할 수 있습니다.');
+    if((backup.privateRoster||backup.workbookImport||backup.memberPatches)&&store.demo) throw Error('실제 명단은 승인된 공동 사용 환경에서만 등록할 수 있습니다.');
+    if(backup.version===1&&backup.memberPatches){
+      const pending=memberPatchChanges(state,backup.memberPatches);
+      if(pending.length) await save(pending);else notify('이미 반영된 멤버 수정입니다.');
+      return;
+    }
     if(backup.version!==1||!tables.every(table=>Array.isArray(backup.state?.[table]))) throw Error('지원하는 백업 파일이 아닙니다.');
     const changes=tables.flatMap(table=>backup.state[table].map(row=>upsert(table,row)));
     if(changes.length>1000||changes.some(({row})=>!row||typeof row!=='object'||!(/^[a-zA-Z0-9_-]{1,128}$/).test(row.id))) throw Error('백업의 기록 형식 또는 개수 제한을 확인하세요.');
@@ -418,7 +451,7 @@ document.addEventListener('input',event=>{
   document.querySelector('#results').innerHTML=route()==='mpe'?mpeList():listContent(route());
 });
 document.addEventListener('change',event=>{
-  if(event.target.id==='meeting'){if(event.target.value){meeting=event.target.value;render();}return;}
+  if(event.target.id==='meeting'){if(event.target.value){meeting=event.target.value;meetingPinned=true;render();}return;}
   if(event.target.id==='report-date'&&event.target.value){updateReport(event.target.value).catch(error=>notify(error.message));return;}
   const form=event.target.closest('#mpe-form');
   if(form&&event.target.name.startsWith('score-')){
@@ -461,7 +494,9 @@ async function boot(){
     app.innerHTML=header()+`<main>${heading('BNI 미다스 멤버십위원회','승인된 위원 전용 업무 공간')}${store.denied?'<p class="notice">이 계정에 접근 권한이 없습니다.</p>'+btn('로그아웃','logout'):btn('Google 계정으로 로그인','login','primary')}</main>`;
     return;
   }
-  state=store.state;meeting=config(state).next||nextMeeting();render();
+  state=store.state;meeting=lastUpcoming=upcomingMeeting(state);render();
+  setInterval(updateMeetingDate,15000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden) updateMeetingDate();});
   if(store.demo&&'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(console.warn);
 }
 boot().catch(error=>{app.textContent='업무 공간을 열 수 없습니다. '+error.message;});

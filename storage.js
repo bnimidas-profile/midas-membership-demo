@@ -6,7 +6,7 @@ export async function openStore() {
     let state=JSON.parse(localStorage.getItem(key)||'null')||seed();
     state.members=state.members.map(member=>{
       const id=/^demo-(\d+)$/.exec(member.id);
-      return id&&member.chapterRole===undefined?{...member,chapterRole:demoChapterRole(Number(id[1]))}:member;
+      return id?{chapterRole:demoChapterRole(Number(id[1])),listeningNumber:Number(id[1])+1,...member}:member;
     });
     return {demo:true,role:'admin',state,save(changes){
       const current=JSON.parse(localStorage.getItem(key)||'null');

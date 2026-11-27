@@ -6,10 +6,11 @@ const notes=(label='특이사항')=>f('notes',label,'textarea');
 const select=(key,label,...options)=>f(key,label,'select',options);
 const member=(label='대상 멤버')=>f('member',label,'member');
 const task=[name(),select('status','진행 상태','대기','진행 중','완료'),f('owner','담당 위원'),f('due','기한','date'),select('priority','우선순위','일반','긴급'),notes()];
+export const scheduleFields=[date('일정 날짜'),f('time','시작 시간','time'),name('일정명'),select('type','일정 구분','주간회의','멤버십 회의','챕터 행사','기타'),f('location','장소'),f('owner','담당'),notes('일정 메모')];
 export const fields={
   board:task,other:task,
   meetings:[date('회의 날짜'),name('회의 제목')],
-  members:[name('이름'),f('company','회사명'),f('specialty','전문분야'),f('chapterRole','챕터 직무'),select('renewalMonth','갱신월','',...Array.from({length:12},(_,index)=>(index+1)+'월')),select('status','상태','활동','휴회','탈퇴'),f('joined','입회일','date'),f('expiry','갱신 만료일','date'),notes()],
+  members:[name('이름'),f('listeningNumber','경청표 번호','number'),f('company','회사명'),f('specialty','전문분야'),f('chapterRole','챕터 직무'),f('committeeDuty','멤버십 담당 업무'),select('renewalMonth','갱신월','',...Array.from({length:12},(_,index)=>(index+1)+'월')),select('status','상태','활동','휴회','탈퇴'),f('joined','입회일','date'),f('expiry','갱신 만료일','date'),notes()],
   visitors:[name('성명'),date('주간회의 날짜'),select('type','방문 유형',...visitorTypes),f('company','회사명'),f('specialty','전문분야'),f('inviter','초청 멤버','member'),member('대리 참석 대상 멤버'),select('status','참석 상태','참석 예정','참석','불참'),notes(),f('followup','후속 관리','textarea')],
   attendance:[select('status','출결 상태',...statuses),f('early','지각과 동시에 조퇴','checkbox'),f('proxy','대리인 성명'),notes()],
   leaves:[member(),f('applied','신청일','date'),f('start','시작일','date'),f('end','종료일','date'),select('status','승인 여부','검토 중','승인','반려'),notes()],
@@ -40,5 +41,5 @@ export function formFields(items,row,state){
 }
 export function readFields(form,items){
   const data=new FormData(form);
-  return Object.fromEntries(items.map(({key,type})=>[key,type==='checkbox'?data.has(key):type==='number'?Number(data.get(key)):String(data.get(key)??'').trim()]));
+  return Object.fromEntries(items.map(({key,type})=>[key,type==='checkbox'?data.has(key):type==='number'?(key==='listeningNumber'&&!data.get(key)?null:Number(data.get(key))):String(data.get(key)??'').trim()]));
 }

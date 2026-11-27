@@ -8,16 +8,24 @@ export const entries = menus.flatMap(([, items]) => items);
 export const statuses = ['정상 출석','병가','대리인','조퇴','지각','결석','미확인'];
 export const visitorTypes = ['비지터','참관인','대리인'];
 export const localDate = (date = new Date()) => new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul'}).format(date);
-export function nextMeeting() {
-  const date = new Date(localDate()+'T00:00:00Z');
-  date.setUTCDate(date.getUTCDate() + (3 - date.getUTCDay() + 7) % 7);
+export const weeklyMeetingTime='08:30';
+const seoulClock=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+export function nextMeeting(now=new Date()) {
+  const date=new Date(localDate(now)+'T00:00:00Z');
+  const days=(3-date.getUTCDay()+7)%7;
+  date.setUTCDate(date.getUTCDate()+(days===0&&seoulClock.format(now)>=weeklyMeetingTime?7:days));
   return date.toISOString().slice(0,10);
+}
+export function upcomingMeeting(state,now=new Date()){
+  const override=config(state).next;
+  const today=localDate(now);
+  return override>today||override===today&&seoulClock.format(now)<weeklyMeetingTime?override:nextMeeting(now);
 }
 export const demoChapterRole=index=>index===0?'부의장':index>=1&&index<=4?'멤버십':'';
 export const seed = () => {
   const date = nextMeeting();
   return {
-    members: Array.from({length:24}, (_,i) => ({id:'demo-'+i,name:'가상 멤버 '+String(i+1).padStart(2,'0'),chapterRole:demoChapterRole(i),company:'샘플 기업', specialty:['컨설팅','디자인','교육','IT'][i%4], status:'활동', expiry:i<3?date:''})),
+    members: Array.from({length:24}, (_,i) => ({id:'demo-'+i,name:'가상 멤버 '+String(i+1).padStart(2,'0'),chapterRole:demoChapterRole(i),listeningNumber:i+1,company:'샘플 기업', specialty:['컨설팅','디자인','교육','IT'][i%4], status:'활동', expiry:i<3?date:''})),
     board:[{id:'task-1',name:'갱신 대상자 인터뷰 일정 확인',status:'진행 중',due:date,priority:'긴급'},{id:'task-2',name:'주간회의 출결 정리',status:'진행 중',due:date},{id:'task-3',name:'위원회 회의 일정 공유',status:'완료',due:date}],
     visitors:[{id:'visit-1',name:'가상 방문자',date,type:'비지터',status:'참석 예정'}],
     admissions:[{id:'new-1',name:'가상 입회 신청자',status:'검토 중',date}],
@@ -27,6 +35,15 @@ export const seed = () => {
   };
 };
 export const live = rows => (rows || []).filter(row=>!row.deleted);
+export function orderedMembers(state){
+  const number=row=>Number(row.listeningNumber)>0?Number(row.listeningNumber):Infinity;
+  return live(state.members).sort((a,b)=>(number(a)-number(b))||
+    a.id.localeCompare(b.id,'en',{numeric:true}));
+}
+export function chapterSchedule(state){
+  return live(state.other).filter(row=>row.kind==='chapter-schedule')
+    .sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time,'en'));
+}
 const committeeRole=member=>String(member.chapterRole||'').replace(/\s+/g,'');
 export function meetingParticipants(state){
   return live(state.members).filter(member=>member.status==='활동'&&
@@ -115,6 +132,27 @@ export function workbookChanges(state,changes,criteria){
     output.push({table:'settings',row:{...current,criteria,confirmed:true,mpeMinimum:5}});
   }
   return output;
+}
+export function memberPatchChanges(state,patches){
+  if(!Array.isArray(patches)||!patches.length||patches.length>100) throw Error('멤버 수정 파일 형식이 올바르지 않습니다.');
+  const normalize=value=>String(value||'').normalize('NFC').replace(/\s+/g,'');
+  const seen=new Set();
+  return patches.map(patch=>{
+    const names=new Set([patch.name,...(patch.aliases||[])].map(normalize).filter(Boolean));
+    const matches=live(state.members).filter(row=>row.id===patch.id||names.has(normalize(row.name)));
+    if(matches.length!==1||seen.has(matches[0]?.id)) throw Error('등록된 멤버와 수정 명단을 연결할 수 없습니다. 현재 명단의 이름과 중복을 확인하세요.');
+    const [row]=matches;
+    seen.add(row.id);
+    const updated={...row};
+    if(patch.removeViceChair&&committeeRole(row)==='부의장') updated.chapterRole='';
+    for(const field of ['name','chapterRole','committeeDuty','listeningNumber']){
+      if(Object.hasOwn(patch,field)) updated[field]=patch[field];
+    }
+    return {table:'members',row:updated};
+  }).filter(({row})=>{
+    const previous=state.members.find(member=>member.id===row.id);
+    return ['name','chapterRole','committeeDuty','listeningNumber'].some(field=>previous[field]!==row[field]);
+  });
 }
 function auditRecord(row){
   if(!Array.isArray(row?.attachments)) return row;
