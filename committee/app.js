@@ -1,4 +1,4 @@
-import {attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js';
+import {attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js';
 import {escape as e,fields,formFields,readFields} from './forms.js';
 import {openStore} from './storage.js';
 import {attachmentFields,readAttachments,reportPng} from './media.js';
@@ -47,6 +47,7 @@ function modal(title,body,onSubmit,submit='저장'){
     catch(error){dialog.querySelector('.form-error').textContent=error.message;button.disabled=false;}
   };
   dialog.showModal();
+  dialog.querySelectorAll('textarea[name="agenda-detail"]').forEach(resizeAgenda);
 }
 async function save(changes){
   state=await store.save(changes);
@@ -109,15 +110,20 @@ function generic(table){
   const tabs=table==='renewals'?`<div class="tabs">${btn('전체 기록','renewal-filter:all',renewalFilter==='all'?'selected':'secondary')}${btn('조건부 승인','renewal-filter:conditional',renewalFilter==='conditional'?'selected':'secondary')}</div>`:'';
   return heading(labelOf(table))+tabs+`<div class="toolbar">${search('이름 또는 기록 검색')}${create}</div><div id="results">${listContent(table)}</div>${targets}`;
 }
+function resizeAgenda(input){
+  input.style.height='auto';
+  const borders=input.offsetHeight-input.clientHeight;
+  input.style.height=(input.scrollHeight+borders)+'px';
+}
 function agendaFields(item={}){
   return `<fieldset class="agenda-item"><legend>안건</legend><label class="field">안건 제목<input name="agenda-title" required value="${e(item.title)}"></label><label class="field">논의 내용 및 결정 사항<textarea name="agenda-detail" rows="3">${e(item.detail)}</textarea></label>${btn('안건 제거','remove-agenda','text-button')}</fieldset>`;
 }
 function meetingFields(row){
   const checked=new Set(row.attendeeIds||[]);
-  const members=state.members.filter(member=>checked.has(member.id)||!member.deleted&&member.status==='활동');
+  const members=meetingParticipants(state);
   const agendas=row.agendas?.length?row.agendas:[{title:row.agenda||(row.notes?'이전 회의 내용':''),detail:row.notes||''}];
   return formFields(fields.meetings,row,state)+
-    `<fieldset class="meeting-attendees"><legend>참석자 체크</legend>${members.map(member=>`<label><input type="checkbox" name="attendees" value="${e(member.id)}" ${checked.has(member.id)?'checked':''}> ${e(member.name)}</label>`).join('')||'<p>멤버현황에서 활동 멤버를 등록하세요.</p>'}</fieldset>`+
+    `<fieldset class="meeting-attendees"><legend>참석자 체크 · 부의장 및 멤버십위원</legend>${members.map(member=>`<label><input type="checkbox" name="attendees" value="${e(member.id)}" ${checked.has(member.id)?'checked':''}> ${e(member.name)} <small>${e(member.chapterRole)}</small></label>`).join('')||'<p>멤버현황에서 부의장 또는 멤버십 직무를 지정하세요.</p>'}</fieldset>`+
     (row.attendees?`<p class="muted">이전 참석자 기록 · ${e(row.attendees)}</p>`:'')+
     `<h3>안건별 회의 내용</h3><div id="agendas">${agendas.map(agendaFields).join('')}</div>${btn('＋ 안건 추가','add-agenda')}`+
     (row.sourceHistory?.length?`<details><summary>원본 수정 이력 ${row.sourceHistory.length}건</summary>${row.sourceHistory.map(change=>`<p>${e(change.date)} · ${e(change.field)}<br>수정 전 · ${e(change.before)}<br>수정 후 · ${e(change.after)}</p>`).join('')}</details>`:'');
@@ -142,7 +148,9 @@ function edit(table,id='',defaults={}){
     if('name' in updated&&!updated.name) throw Error('이름 또는 제목을 입력하세요.');
     if(table==='meetings'){
       const data=new FormData(form);
-      updated.attendeeIds=[...new Set(data.getAll('attendees'))];
+      const eligible=new Set(meetingParticipants(state).map(member=>member.id));
+      const previous=(row.attendeeIds||[]).filter(id=>!eligible.has(id));
+      updated.attendeeIds=[...new Set([...previous,...data.getAll('attendees').filter(id=>eligible.has(id))])];
       updated.agendas=data.getAll('agenda-title').map((title,index)=>({title:title.trim(),detail:data.getAll('agenda-detail')[index].trim()}));
       if(!updated.agendas.length||updated.agendas.some(item=>!item.title)) throw Error('안건 제목을 하나 이상 입력하세요.');
     }
@@ -404,6 +412,7 @@ document.addEventListener('click',event=>{
   if(button) action(button.dataset.action).catch(error=>{if(error.name!=='AbortError')notify(error.message);});
 });
 document.addEventListener('input',event=>{
+  if(event.target.matches('textarea[name="agenda-detail"]')) return resizeAgenda(event.target);
   if(event.target.id!=='search')return;
   query=event.target.value;
   document.querySelector('#results').innerHTML=route()==='mpe'?mpeList():listContent(route());

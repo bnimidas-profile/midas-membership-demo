@@ -13,10 +13,11 @@ export function nextMeeting() {
   date.setUTCDate(date.getUTCDate() + (3 - date.getUTCDay() + 7) % 7);
   return date.toISOString().slice(0,10);
 }
+export const demoChapterRole=index=>index===0?'부의장':index>=1&&index<=4?'멤버십':'';
 export const seed = () => {
   const date = nextMeeting();
   return {
-    members: Array.from({length:24}, (_,i) => ({id:'demo-'+i,name:'가상 멤버 '+String(i+1).padStart(2,'0'),company:'샘플 기업', specialty:['컨설팅','디자인','교육','IT'][i%4], status:'활동', expiry:i<3?date:''})),
+    members: Array.from({length:24}, (_,i) => ({id:'demo-'+i,name:'가상 멤버 '+String(i+1).padStart(2,'0'),chapterRole:demoChapterRole(i),company:'샘플 기업', specialty:['컨설팅','디자인','교육','IT'][i%4], status:'활동', expiry:i<3?date:''})),
     board:[{id:'task-1',name:'갱신 대상자 인터뷰 일정 확인',status:'진행 중',due:date,priority:'긴급'},{id:'task-2',name:'주간회의 출결 정리',status:'진행 중',due:date},{id:'task-3',name:'위원회 회의 일정 공유',status:'완료',due:date}],
     visitors:[{id:'visit-1',name:'가상 방문자',date,type:'비지터',status:'참석 예정'}],
     admissions:[{id:'new-1',name:'가상 입회 신청자',status:'검토 중',date}],
@@ -26,6 +27,12 @@ export const seed = () => {
   };
 };
 export const live = rows => (rows || []).filter(row=>!row.deleted);
+const committeeRole=member=>String(member.chapterRole||'').replace(/\s+/g,'');
+export function meetingParticipants(state){
+  return live(state.members).filter(member=>member.status==='활동'&&
+    ['부의장','멤버십','멤버십위원','멤버십위원장'].includes(committeeRole(member)));
+}
+
 export const config = state => live(state.settings)[0] || {...seed().settings[0],next:'',criteria:[]};
 export function renewalTargets(state) {
   const cutoff = new Date(localDate()+'T00:00:00Z');

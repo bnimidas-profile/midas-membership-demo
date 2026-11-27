@@ -1,9 +1,13 @@
-import {applyChanges,seed} from './model.js';
+import {applyChanges,demoChapterRole,seed} from './model.js';
 const key='midas-fictional-v1';
 export async function openStore() {
   const config=await fetch('./deployment.json',{cache:'no-store'}).then(response=>{if(!response.ok) throw Error('배포 설정을 읽을 수 없습니다.'); return response.json();});
   if(config.mode==='demo') {
     let state=JSON.parse(localStorage.getItem(key)||'null')||seed();
+    state.members=state.members.map(member=>{
+      const id=/^demo-(\d+)$/.exec(member.id);
+      return id&&member.chapterRole===undefined?{...member,chapterRole:demoChapterRole(Number(id[1]))}:member;
+    });
     return {demo:true,role:'admin',state,save(changes){
       const current=JSON.parse(localStorage.getItem(key)||'null');
       if(current && current.audit.length!==state.audit.length) throw Error('다른 탭에서 변경했습니다. 새로고침 후 다시 시도하세요.');
