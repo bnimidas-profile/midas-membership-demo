@@ -1,12 +1,12 @@
-import {calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalGroups,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=5c8210c6bbe1';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=5c8210c6bbe1';
-import {openStore} from './storage.js?v=5c8210c6bbe1';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=5c8210c6bbe1';
+import {calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,isRenewalApproved,renewalCompletion,renewalGroups,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=d88bc0761011';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=d88bc0761011';
+import {openStore} from './storage.js?v=d88bc0761011';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=d88bc0761011';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
 let store,state,meeting,query='',mpeMember='',attendanceMode='meeting',historyMode='meetings',renewalFilter='all';
-let meetingPinned=false,lastUpcoming,calendarMonth;
+let meetingPinned=false,lastUpcoming,lastRenewalMonth,calendarMonth;
 let promptInstall,reportFile,reportUrl,reportRevision=0;
 let toastTimer;
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();promptInstall=event;});
@@ -68,7 +68,7 @@ function nav(){
 const heading=(title,description='')=>`<div class="page-head"><h1>${title}</h1>${description?`<p>${description}</p>`:''}</div>`;
 const section=(title,body,extra='')=>`<section><div class="section-head"><h2>${title}</h2>${extra}</div>${body}</section>`;
 const prettyDate=date=>date?new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric',weekday:'short',timeZone:'UTC'}).format(new Date(date+'T00:00:00Z')):'미정';
-const statusColors={'정상 출석':'green','참석':'green','완료':'green','승인':'green','조건부 승인':'amber','활동':'green','충족':'green','병가':'blue','대리인':'violet','조퇴':'teal','지각':'amber','결석':'red','불참':'red','보완 필요':'red','미확인':'gray'};
+const statusColors={'정상 출석':'green','참석':'green','완료':'green','갱신완료':'green','승인':'green','조건부 승인':'amber','활동':'green','충족':'green','병가':'blue','대리인':'violet','조퇴':'teal','지각':'amber','결석':'red','불참':'red','보완 필요':'red','미확인':'gray'};
 const statusPill=status=>status?`<span class="pill ${statusColors[status]||''}">${e(status)}</span>`:'';
 function rowCard(title,sub,action,end=''){
   return `<button class="list-row" data-action="${e(action)}"><span><strong>${e(title)}</strong><small>${e(sub)}</small></span><span class="row-end">${end}<span class="chevron">›</span></span></button>`;
@@ -124,7 +124,11 @@ function renewalGroupList(){
     .map(([key,title])=>{
       const rows=groups[key].filter(row=>[row.name,row.expiry].join(' ').toLowerCase().includes(query.toLowerCase()));
       if(key==='expired'&&!rows.length) return '';
-      return section(title,rows.map(row=>rowCard(row.name,'만료일 '+row.expiry,'renewal:'+row.id)).join('')||
+      return section(title,rows.map(row=>{
+        const record=currentRenewal(state,row);
+        const status=renewalCompletion(record)?(record.status==='승인'?'갱신완료':'조건부 승인'):'';
+        return rowCard(row.name,'만료일 '+row.expiry,'renewal:'+row.id,statusPill(status));
+      }).join('')||
         empty('해당 회원이 없습니다.'),`<span class="muted">${rows.length}명</span>`);
     }).join('');
 }
@@ -283,6 +287,14 @@ function edit(table,id='',defaults={}){
       if(updated.type==='대리인'&&updated.status==='참석'&&live(state.visitors).some(v=>v.id!==row.id&&v.type==='대리인'&&v.status==='참석'&&v.date===updated.date&&v.member===updated.member)) throw Error('이 멤버의 대리 참석이 이미 등록되어 있습니다.');
     }
     if(['leaves','renewals','letters'].includes(table)&&!updated.member) throw Error('대상 멤버를 선택하세요.');
+    if(table==='renewals'){
+      const expiry=state.members.find(member=>member.id===updated.member)?.expiry||'';
+      updated.cycle=existing&&row.member===updated.member?(row.cycle??row.due??expiry):expiry;
+      if(isRenewalApproved(updated.status)){
+        const sameApproval=existing&&row.status===updated.status&&row.member===updated.member;
+        updated.approvedOn=sameApproval?(row.approvedOn||row.date||localDate()):localDate();
+      } else updated.approvedOn='';
+    }
     if(table==='leaves'&&updated.end<updated.start) throw Error('종료일은 시작일 이후여야 합니다.');
     if(table==='attendance'){
       updated.early=updated.status==='지각'&&updated.early;
@@ -448,10 +460,16 @@ function schedule(){
 function updateMeetingDate(){
   if(!state||dialog.open) return;
   const date=upcomingMeeting(state);
-  if(date===lastUpcoming) return;
+  const month=localDate().slice(0,7);
+  const meetingChanged=date!==lastUpcoming;
+  const monthChanged=month!==lastRenewalMonth;
+  if(!meetingChanged&&!monthChanged) return;
   lastUpcoming=date;
+  lastRenewalMonth=month;
   if(!meetingPinned) meeting=date;
-  if(['home','attendance'].includes(route())) render();
+  const view=route();
+  if((meetingChanged&&['home','attendance'].includes(view))||
+     (monthChanged&&(['home','renewals'].includes(view)||view==='mpe'&&!mpeMember))) render();
 }
 function render(){
   if(!state) return;
@@ -544,7 +562,11 @@ async function action(value){
   }
   if(type==='edit-schedule') return edit('other',a,{kind:'chapter-schedule',date:localDate()});
   if(type==='renewal-filter'){renewalFilter=a;return render();}
-  if(type==='renewal') return edit('renewals','',{member:a});
+  if(type==='renewal'){
+    const member=live(state.members).find(row=>row.id===a);
+    if(member) return edit('renewals',currentRenewal(state,member)?.id,{member:a,date:localDate(),cycle:member.expiry});
+    return;
+  }
   if(type==='mpe'){mpeMember=a;return render();}
   if(type==='mpeback'){mpeMember='';return render();}
   if(type==='history'){historyMode=a;return go('history');}
@@ -710,7 +732,7 @@ async function boot(){
     app.innerHTML=header()+`<main>${heading('BNI 미다스 멤버십위원회','승인된 위원 전용 업무 공간')}${store.denied?'<p class="notice">이 계정에 접근 권한이 없습니다.</p>'+btn('로그아웃','logout'):btn('Google 계정으로 로그인','login','primary')}</main>`;
     return;
   }
-  state=store.state;meeting=lastUpcoming=upcomingMeeting(state);render();
+  state=store.state;meeting=lastUpcoming=upcomingMeeting(state);lastRenewalMonth=localDate().slice(0,7);render();
   setInterval(updateMeetingDate,15000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden) updateMeetingDate();});
   if(store.demo&&'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(console.warn);
