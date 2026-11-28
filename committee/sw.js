@@ -1,5 +1,5 @@
-const cacheName='midas-shell-20';
-const files=['./','./index.html','./app.js','./model.js','./storage.js','./forms.js','./media.js','./style.css','./manifest.webmanifest','./icon-192.png?v=5','./icon-512.png?v=5'];
+const cacheName='midas-shell-f1b018187c1a';
+const files=['./','./index.html','./app.js?v=f1b018187c1a','./model.js?v=f1b018187c1a','./storage.js?v=f1b018187c1a','./forms.js?v=f1b018187c1a','./media.js?v=f1b018187c1a','./style.css?v=f1b018187c1a','./manifest.webmanifest','./icon-192.png?v=5','./icon-512.png?v=5'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(cacheName);
   await cache.addAll(files);
@@ -20,7 +20,7 @@ self.addEventListener('fetch',event=>{
     return;
   }
   if(event.request.mode==='navigate'&&files.slice(0,2).some(file=>new URL(file,self.registration.scope).pathname===url.pathname)) {
-    event.respondWith(fetch(event.request).catch(()=>caches.match('./index.html')));
+    event.respondWith(fetch(event.request,{cache:'no-cache'}).catch(()=>caches.match('./index.html')));
     return;
   }
   if(files.some(file=>new URL(file,self.registration.scope).href===url.href)){
