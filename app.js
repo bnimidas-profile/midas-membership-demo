@@ -318,9 +318,12 @@ function calendar(){
     </div>
     <div class="calendar-grid">
       ${['일','월','화','수','목','금','토'].map((label,index)=>`<span class="calendar-weekday ${index===0?'sunday':index===6?'saturday':''}">${label}</span>`).join('')}
-      ${cells.map(cell=>`<button type="button" class="calendar-day ${cell.inMonth?'':'outside'} ${cell.weekday===0?'sunday':cell.weekday===6?'saturday':''}" data-action="calendar-day:${cell.date}" aria-label="${cell.date} 일정 ${cell.items.length}건" ${cell.date===today?'aria-current="date"':''}>
-        <span class="calendar-number">${cell.day}</span>
-        ${cell.items.slice(0,1).map(item=>`<span class="calendar-event ${item.cancelled?'cancelled':item.recurring?'recurring':''}">${e(item.cancelled?'주간회의 없음':item.name)}</span>`).join('')}
+      ${cells.map(cell=>`<button type="button" class="calendar-day ${cell.inMonth?'':'outside'} ${cell.weekday===0?'sunday':cell.weekday===6?'saturday':''}" data-action="calendar-day:${cell.date}" aria-label="${cell.date}${cell.date===today?' 오늘':''} 일정 ${cell.items.length}건" ${cell.date===today?'aria-current="date"':''}>
+        <span class="calendar-date-head">
+          <span class="calendar-number">${cell.day}</span>
+          ${cell.date===today?'<span class="calendar-today-label"><img src="icon-192.png?v=5" alt="" width="10" height="10">오늘</span>':''}
+        </span>
+        ${cell.items.slice(0,1).map(item=>`<span class="calendar-event ${item.recurring?'recurring':''}">${e(item.name)}</span>`).join('')}
         ${cell.items.length>1?`<span class="calendar-more">+${cell.items.length-1}</span>`:''}
       </button>`).join('')}
     </div>
@@ -330,7 +333,6 @@ function calendarDay(date){
   return calendarDays(state,date.slice(0,7)).find(cell=>cell.date===date);
 }
 function scheduleDescription(item){
-  if(item.cancelled) return '취소된 정기 일정';
   const endDate=item.endDate||item.date;
   const time=[item.time,item.endTime].filter(Boolean).join(' – ');
   const span=endDate!==item.date?
@@ -339,20 +341,21 @@ function scheduleDescription(item){
   return [span,item.location,item.type].filter(Boolean).join(' · ');
 }
 function showCalendarDay(date){
-  const rows=calendarDay(date).items.map(item=>{
-    const name=item.cancelled?'주간회의 없음':item.name;
+  const day=calendarDay(date);
+  const rows=day.items.map(item=>{
     const editAction=item.recurring?'edit-weekly:'+date:'edit-schedule:'+item.id;
     const weekly=item.type==='주간회의';
     const remove=weekly?'weekly-toggle:'+item.date+':'+item.id:'delete:other:'+item.id;
     return `<article class="schedule-day-row">
-      <button class="schedule-day-title" type="button" data-action="${e(editAction)}"><strong>${e(name)}</strong><small>${e(scheduleDescription(item))}</small></button>
+      <button class="schedule-day-title" type="button" data-action="${e(editAction)}"><strong>${e(item.name)}</strong><small>${e(scheduleDescription(item))}</small></button>
       <div class="schedule-day-actions">
         ${btn('수정',editAction)}
-        ${weekly||admin()?btn(item.cancelled?'다시 표시':'삭제',remove,item.cancelled?'secondary':'danger'):''}
+        ${weekly||admin()?btn('삭제',remove,'danger'):''}
       </div>
     </article>`;
   }).join('');
-  modal(e(prettyDate(date))+' 일정',`<div class="toolbar">${btn('＋ 일정 등록','calendar-add:'+date,'primary')}</div>`+(rows||empty('등록된 일정이 없습니다.')));
+  const restore=day.cancelled.map(item=>btn('주간회의 다시 표시','weekly-toggle:'+date+':'+item.id)).join('');
+  modal(e(prettyDate(date))+' 일정',`<div class="toolbar">${btn('＋ 일정 등록','calendar-add:'+date,'primary')}${restore}</div>`+(rows||empty('등록된 일정이 없습니다.')));
 }
 function schedule(){
   return heading('챕터 일정표','매주 수요일 08:30 · 한국시간')+calendar();

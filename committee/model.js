@@ -78,12 +78,13 @@ export function calendarDays(state,month){
   do {
     const date=day.toISOString().slice(0,10);
     const weekday=day.getUTCDay();
-    const items=records.filter(row=>row.date<=date&&date<=(row.cancelled?row.date:row.endDate||row.date));
-    if(weekday===3&&!records.some(row=>row.regularDate===date)&&!items.some(row=>row.type==='주간회의'&&row.date===date)){
+    const items=records.filter(row=>!row.cancelled&&row.date<=date&&date<=(row.endDate||row.date));
+    const cancelled=records.filter(row=>row.cancelled&&row.date===date&&row.type==='주간회의');
+    if(weekday===3&&!records.some(row=>row.regularDate===date||row.date===date&&row.type==='주간회의')){
       items.push(regularMeeting(date));
       items.sort((a,b)=>(a.time||'').localeCompare(b.time||'','en'));
     }
-    cells.push({date,day:day.getUTCDate(),weekday,inMonth:date.startsWith(month),items});
+    cells.push({date,day:day.getUTCDate(),weekday,inMonth:date.startsWith(month),items,cancelled});
     day.setUTCDate(day.getUTCDate()+1);
   } while(day<next||day.getUTCDay()!==0);
   return cells;
