@@ -1,7 +1,7 @@
-import {calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=1092deb9e3a2';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=1092deb9e3a2';
-import {openStore} from './storage.js?v=1092deb9e3a2';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=1092deb9e3a2';
+import {calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalGroups,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=5c8210c6bbe1';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=5c8210c6bbe1';
+import {openStore} from './storage.js?v=5c8210c6bbe1';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=5c8210c6bbe1';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
@@ -86,7 +86,7 @@ function dashboard(){
   const metrics=[
     ['members','전체 멤버',members.length,'명','♙','활동 멤버 기준'],
     ['admissions','신규 입회 심사',live(state.admissions).filter(row=>['검토 중','보류'].includes(row.status)).length,'건','＋','검토 또는 보류'],
-    ['renewals','갱신 대상 멤버',renewalTargets(state).length,'명','↻','만료 90일 이내 및 만료 멤버'],
+    ['renewals','갱신 대상 멤버',renewalTargets(state).length,'명','↻','갱신 3개월 이내 및 만료 멤버'],
     ['mpe','MPE 평가 대기',waiting.length,'명','☆','완료되지 않은 평가'],
 
   ];
@@ -118,13 +118,23 @@ function boardShortcuts(){
     .join('');
   return shortcuts?`<div class="menu-grid board-shortcuts" aria-label="업무 바로가기">${shortcuts}</div>`:'';
 }
+function renewalGroupList(){
+  const groups=renewalGroups(state);
+  return [['one','갱신 1개월 전'],['two','갱신 2개월 전'],['three','갱신 3개월 전'],['expired','갱신일 경과']]
+    .map(([key,title])=>{
+      const rows=groups[key].filter(row=>[row.name,row.expiry].join(' ').toLowerCase().includes(query.toLowerCase()));
+      if(key==='expired'&&!rows.length) return '';
+      return section(title,rows.map(row=>rowCard(row.name,'만료일 '+row.expiry,'renewal:'+row.id)).join('')||
+        empty('해당 회원이 없습니다.'),`<span class="muted">${rows.length}명</span>`);
+    }).join('');
+}
 function generic(table){
-  const targets=table==='renewals'&&renewalFilter==='all'?section('갱신 대상 멤버',renewalTargets(state).map(row=>rowCard(row.name,'만료일 '+row.expiry,'renewal:'+row.id)).join('')||empty('갱신 대상자가 없습니다.')):'';
+  const targets=table==='renewals'&&renewalFilter==='all'?`<div id="renewal-targets">${renewalGroupList()}</div>`:'';
   const create=table==='members'&&!admin()?'':btn('＋ 새 기록','edit:'+table,'primary');
   const tabs=table==='renewals'?`<div class="tabs">${btn('전체 기록','renewal-filter:all',renewalFilter==='all'?'selected':'secondary')}${btn('조건부 승인','renewal-filter:conditional',renewalFilter==='conditional'?'selected':'secondary')}</div>`:'';
   const records=`<div class="toolbar">${search('이름 또는 기록 검색')}${create}</div><div id="results">${listContent(table)}</div>`;
-  return heading(labelOf(table))+tabs+
-    (table==='board'?boardShortcuts()+section('일반 업무',records):records)+targets;
+  return heading(labelOf(table))+tabs+targets+
+    (table==='board'?boardShortcuts()+section('일반 업무',records):table==='renewals'?section('갱신 기록',records):records);
 }
 function resizeAgenda(input){
   input.style.height='auto';
@@ -646,6 +656,8 @@ document.addEventListener('input',event=>{
   if(event.target.id!=='search')return;
   query=event.target.value;
   document.querySelector('#results').innerHTML=route()==='mpe'?mpeList():listContent(route());
+  const targets=document.querySelector('#renewal-targets');
+  if(targets) targets.innerHTML=renewalGroupList();
 });
 document.addEventListener('change',event=>{
   if(event.target.matches('.schedule-period [name=date]')){

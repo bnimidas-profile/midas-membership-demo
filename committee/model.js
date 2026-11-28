@@ -96,11 +96,29 @@ export function meetingParticipants(state){
 }
 
 export const config = state => live(state.settings)[0] || {...seed().settings[0],next:'',criteria:[]};
-export function renewalTargets(state) {
-  const cutoff = new Date(localDate()+'T00:00:00Z');
-  cutoff.setUTCDate(cutoff.getUTCDate()+90);
-  return live(state.members).filter(row=>row.status==='활동' && row.expiry && row.expiry<=cutoff.toISOString().slice(0,10));
+export function renewalGroups(state,today=localDate()){
+  const day=Number(today.slice(8));
+  const month=today.slice(0,7);
+  const deadlines=[1,2,3].map(offset=>{
+    const target=shiftCalendarMonth(month,offset);
+    const [year,monthNumber]=target.split('-').map(Number);
+    const monthEnd=new Date(Date.UTC(year,monthNumber,0)).getUTCDate();
+    return target+'-'+String(Math.min(day,monthEnd)).padStart(2,'0');
+  });
+  const groups={one:[],two:[],three:[],expired:[]};
+  const members=live(state.members).filter(row=>row.status==='활동'&&row.expiry)
+    .sort((a,b)=>a.expiry.localeCompare(b.expiry,'en')||a.name.localeCompare(b.name,'ko'));
+  for(const member of members){
+    const expiry=member.expiry;
+    if(expiry<today) groups.expired.push(member);
+    else {
+      const index=deadlines.findIndex(deadline=>expiry<=deadline);
+      if(index!==-1) groups[['one','two','three'][index]].push(member);
+    }
+  }
+  return groups;
 }
+export const renewalTargets=(state,today)=>Object.values(renewalGroups(state,today)).flat();
 export function attendanceFor(state,date,member) {
   const proxy = live(state.visitors).find(row=>row.date===date && row.member===member && row.type==='대리인' && row.status==='참석');
   const row = live(state.attendance).find(row=>row.date===date && row.member===member);

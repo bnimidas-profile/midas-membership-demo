@@ -1,5 +1,5 @@
-const cacheName='midas-shell-1092deb9e3a2';
-const files=['./','./index.html','./app.js?v=1092deb9e3a2','./model.js?v=1092deb9e3a2','./storage.js?v=1092deb9e3a2','./forms.js?v=1092deb9e3a2','./media.js?v=1092deb9e3a2','./style.css?v=1092deb9e3a2','./manifest.webmanifest','./icon-192.png?v=5','./icon-512.png?v=5'];
+const cacheName='midas-shell-5c8210c6bbe1';
+const files=['./','./index.html','./app.js?v=5c8210c6bbe1','./model.js?v=5c8210c6bbe1','./storage.js?v=5c8210c6bbe1','./forms.js?v=5c8210c6bbe1','./media.js?v=5c8210c6bbe1','./style.css?v=5c8210c6bbe1','./manifest.webmanifest','./icon-192.png?v=5','./icon-512.png?v=5'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(cacheName);
   await cache.addAll(files);
