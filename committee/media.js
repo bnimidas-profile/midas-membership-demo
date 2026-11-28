@@ -1,4 +1,4 @@
-import {escape as e} from './forms.js?v=ebe62fd7cfe8';
+import {escape as e} from './forms.js?v=b09c74bfa17e';
 
 const maxImageLength=300000;
 const maxAttachments=10;
@@ -54,16 +54,19 @@ export async function readAttachments(form,table,existing=[],demo){
   return keep;
 }
 const reportColors={
-  '정상 출석':['#e5f5eb','#157044'],'병가':['#e5f0ff','#23559a'],'대리인':['#f1e8fb','#65409b'],
-  '조퇴':['#e0f5f2','#126864'],'지각':['#fff0d6','#80530c'],'결석':['#fae5e9','#a41533'],'미확인':['#eceef2','#4d5265'],
+  '정상 출석':['#e5f4eb','#176742'],'병가':['#e6f0fb','#24558c'],'대리인':['#f0e8fc','#593786'],
+  '조퇴':['#e4f5f1','#1b6a5d'],'지각':['#fff0d9','#7d520f'],'결석':['#fae9ee','#972340'],
 };
+const meetingDateFormat=new Intl.DateTimeFormat('ko-KR',{
+  year:'numeric',month:'long',day:'numeric',weekday:'short',timeZone:'UTC',
+});
 export async function reportPng({title,date,total,rows,guests}){
   const canvas=document.createElement('canvas');
+  canvas.lang='ko';
   const ctx=canvas.getContext('2d');
-  const width=760,margin=32,tableWidth=width-margin*2;
-  const statusWidth=155,countWidth=85,nameX=margin+statusWidth+countWidth;
-  const nameWidth=tableWidth-statusWidth-countWidth;
-  const lineHeight=28;
+  const width=720,margin=34,gap=16,cardWidth=(width-margin*2-gap)/2;
+  const lineHeight=28,bodyFont='21px system-ui',labelFont='bold 20px system-ui';
+  const titleFont='bold 39px system-ui';
   function wrap(value,maxWidth,font){
     ctx.font=font;
     const lines=[];
@@ -77,73 +80,76 @@ export async function reportPng({title,date,total,rows,guests}){
     }
     return [...lines,line.trimEnd()];
   }
-  const titleFont='bold 34px system-ui',bodyFont='21px system-ui',labelFont='bold 21px system-ui';
-  const titleLines=wrap(title,tableWidth-38,titleFont);
-  const headerHeight=62+titleLines.length*44;
-  const attendance=rows.map(row=>{
-    const lines=wrap(row.names.join(' · ')||'—',nameWidth-32,bodyFont);
-    return {...row,lines,height:Math.max(58,24+lines.length*lineHeight)};
-  });
-  const guestsLayout=guests.map(row=>{
-    const lines=wrap(row.names.join(' · '),tableWidth-190,bodyFont);
-    return {...row,lines,height:Math.max(55,24+lines.length*lineHeight)};
-  });
-  const sumHeight=items=>items.reduce((sum,item)=>sum+item.height,0);
-  const height=headerHeight+margin+86+26+54+sumHeight(attendance)+
-    (guestsLayout.length?26+50+sumHeight(guestsLayout):0)+margin;
-  canvas.width=width*2;canvas.height=height*2;
+  const titleLines=wrap(title,width-margin*2-56,titleFont);
+  const headerHeight=220+Math.max(0,titleLines.length-1)*48;
+  const makeGrid=items=>{
+    const grid=[];
+    for(let i=0;i<items.length;i+=2){
+      const cards=items.slice(i,i+2).map(item=>({
+        ...item,lines:wrap(item.names.join(' · ')||'—',cardWidth-44,bodyFont),
+      }));
+      const height=Math.max(163,...cards.map(({lines})=>118+lines.length*lineHeight));
+      grid.push({cards,height});
+    }
+    return grid;
+  };
+  const attendanceGrid=makeGrid(rows);
+  const guestsGrid=makeGrid(guests);
+  const gridHeight=grid=>grid.reduce((height,row)=>height+row.height+gap,0);
+  const guestsHeadingHeight=52;
+  const height=32+headerHeight+20+gridHeight(attendanceGrid)+
+    (guestsGrid.length?guestsHeadingHeight+gridHeight(guestsGrid):0)+margin-gap;
+  canvas.width=width*2;
+  canvas.height=height*2;
   ctx.scale(2,2);
   ctx.textBaseline='top';
-  function rect(x,y,w,h,fill){ctx.fillStyle=fill;ctx.fillRect(x,y,w,h);}
-  function text(value,x,y,font=bodyFont,color='#222332'){
-    ctx.fillStyle=color;ctx.font=font;ctx.fillText(value,x,y);
+  function roundedRect(x,y,w,h,radius,fill,outline){
+    ctx.beginPath();
+    ctx.roundRect(x,y,w,h,radius);
+    ctx.fillStyle=fill;
+    ctx.fill();
+    if(outline){ctx.strokeStyle=outline;ctx.lineWidth=2;ctx.stroke();}
   }
-  function block(lines,x,y,font=bodyFont,color){
-    lines.forEach((line,index)=>text(line,x,y+index*lineHeight,font,color));
+  function text(value,x,y,font,color,align='left'){
+    ctx.fillStyle=color;
+    ctx.font=font;
+    ctx.textAlign=align;
+    ctx.fillText(value,x,y);
   }
-  rect(0,0,width,height,'#f6f6fa');
-  rect(0,0,width,headerHeight,'#a91436');
-  rect(0,0,9,headerHeight,'#e13d61');
-  text('BNI MIDAS  /  MEMBERSHIP COMMITTEE',margin,21,'bold 15px system-ui','#ffdce5');
-  titleLines.forEach((line,index)=>text(line,margin,48+index*44,titleFont,'white'));
-  let y=headerHeight+margin;
-  const summaryWidth=(tableWidth-12)/2;
-  for(const [index,label,value] of [[0,'주간회의 날짜',date],[1,'총원',total+'명']]){
-    const x=margin+index*(summaryWidth+12);
-    rect(x,y,summaryWidth,86,'white');rect(x,y,4,86,'#b51232');
-    text(label,x+18,y+13,'bold 17px system-ui','#5c6073');
-    text(value,x+18,y+39,'bold 30px system-ui');
-  }
-  y+=112;
-  rect(margin,y,tableWidth,54,'#25263c');
-  text('출결 구분',margin+16,y+15,labelFont,'white');
-  text('인원',margin+statusWidth+16,y+15,labelFont,'white');
-  text('정상 출석 외 명단',nameX+16,y+15,labelFont,'white');
-  y+=54;
-  attendance.forEach(({status,count,lines,height},index)=>{
-    const [bg,fg]=reportColors[status];
-    rect(margin,y,tableWidth,height,index%2?'#fbfbfe':'white');
-    rect(margin+12,y+13,statusWidth-24,32,bg);
-    text(status,margin+22,y+17,'bold 18px system-ui',fg);
-    text(count+'명',margin+statusWidth+16,y+17,labelFont,fg);
-    block(lines,nameX+16,y+15);
-    rect(margin+statusWidth,y,1,height,'#e6e7ef');
-    rect(nameX,y,1,height,'#e6e7ef');
-    rect(margin,y+height-1,tableWidth,1,'#e6e7ef');
-    y+=height;
-  });
-  if(guestsLayout.length){
-    y+=26;
-    rect(margin,y,tableWidth,50,'#e9eaf3');
-    text('디렉터 · 앰버서더 출결',margin+16,y+12,labelFont);
-    y+=50;
-    for(const {type,lines,height} of guestsLayout){
-      rect(margin,y,tableWidth,height,'white');
-      text(type,margin+16,y+15,labelFont);
-      block(lines,margin+162,y+15);
-      rect(margin,y+height-1,tableWidth,1,'#e6e7ef');
-      y+=height;
+  ctx.fillStyle='#f7f3f5';
+  ctx.fillRect(0,0,width,height);
+  roundedRect(margin,32,width-margin*2,headerHeight,26,'#ab1232');
+  const headerX=margin+28,right=width-headerX;
+  text('BNI',headerX,55,'bold 29px system-ui','white');
+  text('membership',headerX+69,63,'bold 18px system-ui','white');
+  titleLines.forEach((line,index)=>text(line,headerX,106+index*48,titleFont,'white'));
+  const meeting=new Date(date+'T00:00:00Z');
+  const formattedDate=Number.isNaN(meeting.getTime())?date:meetingDateFormat.formatToParts(meeting)
+    .map(({type,value})=>type==='weekday'?'('+value+')':value).join('');
+  text(formattedDate,headerX,headerHeight-39,'22px system-ui','#f9dfe8');
+  text('총원 '+total+'명',right,headerHeight-43,'bold 26px system-ui','white','right');
+
+  let y=32+headerHeight+20;
+  function drawGrid(grid){
+    for(const row of grid){
+      row.cards.forEach(({status,type,count,lines},index)=>{
+        const title=status||type;
+        const [bg,fg]=reportColors[title]||['#f9edf1','#ab1232'];
+        const x=margin+index*(cardWidth+gap);
+        roundedRect(x,y,cardWidth,row.height,22,'white','#e9e2e6');
+        roundedRect(x+19,y+19,140,39,14,bg);
+        text(title,x+89,y+27,labelFont,fg,'center');
+        if(count!==undefined) text(count+'명',x+cardWidth-23,y+20,'bold 27px system-ui',fg,'right');
+        lines.forEach((line,index)=>text(line,x+22,y+94+index*lineHeight,bodyFont,'#514b54'));
+      });
+      y+=row.height+gap;
     }
+  }
+  drawGrid(attendanceGrid);
+  if(guestsGrid.length){
+    text('디렉터 · 앰버서더 출결',margin,y+7,'bold 24px system-ui','#241e26');
+    y+=guestsHeadingHeight;
+    drawGrid(guestsGrid);
   }
   return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('보고서 이미지를 만들 수 없습니다.')),'image/png'));
 }
