@@ -143,13 +143,77 @@ function guestAttendance(){
   })),...today.filter(row=>!regular.some(person=>row.guestId===person.id||!row.guestId&&row.name===person.name&&row.type===person.type)).map(row=>({person:row,record:row}))];
   return rows.map(({person,record})=>`<div class="guest-row"><div><button type="button" class="text-button guest-name" data-action="edit:guests:${e(person.id)}">${e(person.name)}</button><small>${e(person.type)}</small></div><div class="guest-options" role="group" aria-label="${e(person.name)} 참석 여부">${['참석','불참'].map(status=>`<button type="button" class="secondary guest-choice ${record?.status===status?statusColors[status]:''}" aria-pressed="${record?.status===status}" data-action="guest:${e(person.id)}:${status}">${status}</button>`).join('')}</div></div>`).join('')||empty('이름을 등록하면 회의 날짜별로 참석을 체크할 수 있습니다.');
 }
+const scheduleTimeLabels={time:'시작 시간',endTime:'종료 시간'};
+const twoDigits=value=>String(value).padStart(2,'0');
+function scheduleTimeField(name,value){
+  const label=scheduleTimeLabels[name];
+  return `<div class="field"><span>${label}</span>
+    <input type="hidden" name="${name}" value="${e(value)}">
+    <button type="button" class="secondary schedule-time" data-action="schedule-clock:${name}"
+      aria-label="${label} 선택" aria-expanded="false" aria-controls="schedule-clock">${e(value||'시간 선택')}</button>
+  </div>`;
+}
 function scheduleForm(row){
   const values={...row,endDate:row.endDate||row.date};
   return formFields(scheduleFields.slice(0,1),values,state)+
     `<div class="schedule-period">
-      <fieldset><legend>시작</legend>${formFields(scheduleFields.slice(1,3),values,state)}</fieldset>
-      <fieldset><legend>종료</legend>${formFields(scheduleFields.slice(3,5),values,state)}</fieldset>
-    </div>`+formFields(scheduleFields.slice(5),values,state);
+      <fieldset><legend>시작</legend>${formFields(scheduleFields.slice(1,2),values,state)}${scheduleTimeField('time',row.time)}</fieldset>
+      <fieldset><legend>종료</legend>${formFields(scheduleFields.slice(3,4),values,state)}${scheduleTimeField('endTime',row.endTime)}</fieldset>
+    </div>
+    <section id="schedule-clock" class="schedule-clock" hidden></section>`+formFields(scheduleFields.slice(5),values,state);
+}
+function setScheduleTime(name,value){
+  const trigger=dialog.querySelector(`[data-action="schedule-clock:${name}"]`);
+  dialog.querySelector(`input[name="${name}"]`).value=value;
+  trigger.textContent=value||'시간 선택';
+}
+function closeScheduleClock(){
+  const panel=dialog.querySelector('#schedule-clock');
+  panel.hidden=true;
+  panel.replaceChildren();
+  dialog.querySelectorAll('.schedule-time').forEach(trigger=>trigger.setAttribute('aria-expanded','false'));
+}
+function openScheduleClock(name){
+  closeScheduleClock();
+  const panel=dialog.querySelector('#schedule-clock');
+  const trigger=dialog.querySelector(`[data-action="schedule-clock:${name}"]`);
+  const stored=dialog.querySelector(`input[name="${name}"]`).value;
+  const initial=stored||dialog.querySelector('input[name="time"]').value||weeklyMeetingTime;
+  const values=initial.split(':').map(Number);
+  setScheduleTime(name,initial);
+  const wheel=(label,length)=>`<div class="clock-wheel" tabindex="0" role="group" aria-label="${label} 선택">
+    ${Array.from({length},(_,value)=>`<button type="button" tabindex="-1" aria-label="${twoDigits(value)}${label}" aria-pressed="false">${twoDigits(value)}</button>`).join('')}
+    </div>`;
+  panel.innerHTML=`<h3>${scheduleTimeLabels[name]}</h3>
+    <div class="clock-columns">${wheel('시',24)}<span aria-hidden="true">:</span>${wheel('분',60)}</div>
+    <div class="clock-actions">${btn('시간 지우기','schedule-clock-clear:'+name,'text-button')}${btn('시간 적용','schedule-clock-close','primary')}</div>`;
+  panel.hidden=false;
+  trigger.setAttribute('aria-expanded','true');
+  panel.querySelectorAll('.clock-wheel').forEach((column,index)=>{
+    const options=[...column.querySelectorAll('button')];
+    const step=options[0].offsetHeight;
+    const select=value=>{
+      const bounded=Math.max(0,Math.min(value,options.length-1));
+      options[values[index]].setAttribute('aria-pressed','false');
+      options[bounded].setAttribute('aria-pressed','true');
+      values[index]=bounded;
+      setScheduleTime(name,values.map(twoDigits).join(':'));
+      return bounded;
+    };
+    const move=value=>{column.scrollTop=select(value)*step;};
+    move(values[index]);
+    column.addEventListener('scroll',()=>select(Math.round(column.scrollTop/step)),{passive:true});
+    column.addEventListener('click',event=>{
+      const option=event.target.closest('button');
+      if(option) move(options.indexOf(option));
+    });
+    column.addEventListener('keydown',event=>{
+      const delta={ArrowUp:-1,ArrowDown:1,PageUp:-5,PageDown:5}[event.key];
+      if(!delta)return;
+      event.preventDefault();
+      move(values[index]+delta);
+    });
+  });
 }
 function edit(table,id='',defaults={}){
   const existing=state[table].find(row=>row.id===id);
@@ -434,6 +498,12 @@ async function action(value){
     const label=cancelled?'주간회의 없음':'주간회의 다시 표시';
     return modal(label, `<p>${e(prettyDate(a))}의 주간회의를 ${cancelled?'취소합니다.':'다시 표시합니다.'}</p>`,
       ()=>save([upsert('other',{...row,cancelled})]),label);
+  }
+  if(type==='schedule-clock'&&Object.hasOwn(scheduleTimeLabels,a)) return openScheduleClock(a);
+  if(type==='schedule-clock-close') return closeScheduleClock();
+  if(type==='schedule-clock-clear'&&Object.hasOwn(scheduleTimeLabels,a)){
+    setScheduleTime(a,'');
+    return closeScheduleClock();
   }
   if(type==='edit-schedule') return edit('other',a,{kind:'chapter-schedule',date:localDate()});
   if(type==='renewal-filter'){renewalFilter=a;return render();}
