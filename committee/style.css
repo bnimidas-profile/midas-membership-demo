@@ -25,3 +25,10 @@ dialog{position:fixed;width:min(calc(100% - 22px),580px);max-height:calc(100dvh 
 
 .board-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr))}.board-shortcuts .symbol{flex:none}@media(min-width:720px){.board-shortcuts{grid-template-columns:repeat(4,minmax(0,1fr))}}
 .renewal-group .section-head{padding:8px 12px;border-radius:9px;background:var(--renewal-background);color:var(--renewal-ink);border-inline-start:4px solid var(--renewal-accent)}.renewal-count{font-size:.82rem;font-weight:700}.renewal-current{--renewal-background:#fae0e8;--renewal-ink:#80112e;--renewal-accent:#b51232}.renewal-one{--renewal-background:#feecef;--renewal-ink:#881436;--renewal-accent:#ca3656}.renewal-two{--renewal-background:#fff1dd;--renewal-ink:#734608;--renewal-accent:#bd7819}.renewal-three{--renewal-background:#e9f1fb;--renewal-ink:#244b76;--renewal-accent:#527da9}.renewal-expired{--renewal-background:#eeedf1;--renewal-ink:#514d5a;--renewal-accent:#88818f}
+
+.row-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .4rem}
+.row-title .pill{font-size:.69rem;white-space:nowrap}
+.ballot-choices{display:flex;flex-wrap:wrap;gap:.5rem}
+.ballot-results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem;margin:1rem 0}
+.ballot-results>span{border:1px solid var(--border,#e3e3e7);border-radius:.75rem;padding:.65rem;text-align:center}
+.ballot-results strong{display:block;margin-top:.25rem}

@@ -59,6 +59,17 @@ export function orderedMembers(state){
   return live(state.members).sort((a,b)=>(number(a)-number(b))||
     a.id.localeCompare(b.id,'en',{numeric:true}));
 }
+export const isWithdrawn=status=>status==='탈회'||status==='탈퇴';
+export function chapterRoster(state){
+  let inactiveBefore=0;
+  return orderedMembers(state).flatMap(member=>{
+    const number=Number(member.listeningNumber);
+    const inactive=isWithdrawn(member.status)||member.status==='휴회';
+    const displayNumber=number>0&&!inactive?number-inactiveBefore:null;
+    if(number>0&&inactive) inactiveBefore++;
+    return isWithdrawn(member.status)?[]:[{...member,displayNumber}];
+  });
+}
 export function chapterSchedule(state){
   return live(state.other).filter(row=>row.kind==='chapter-schedule')
     .sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time,'en'));
@@ -118,7 +129,9 @@ export function renewalGroups(state,today=localDate(),{includeApproved=false}={}
   const members=live(state.members).filter(row=>row.status==='활동'&&row.expiry)
     .sort((a,b)=>a.expiry.localeCompare(b.expiry,'en')||a.name.localeCompare(b.name,'ko'));
   for(const member of members){
-    if(!includeApproved&&isRenewalApproved(currentRenewal(state,member)?.status)) continue;
+    const decision=currentRenewal(state,member);
+    const approvedMonth=(decision?.approvedOn||decision?.date||'').slice(0,7);
+    if(!includeApproved&&isRenewalApproved(decision?.status)&&approvedMonth&&approvedMonth<month) continue;
     const expiryMonth=member.expiry.slice(0,7);
     const band=expiryMonth<month?'expired':bands.get(expiryMonth);
     if(band) groups[band].push(member);
@@ -158,7 +171,7 @@ export function attendanceReport(state,date) {
   return {
     title:config(state).reportTitle||'미다스챕터 주간회의 출결 보고',
     date,total,
-    rows:statuses.map(status=>({status,count:counts[status],names:names[status]})),
+    rows:statuses.filter(status=>status!=='미확인').map(status=>({status,count:counts[status],names:names[status]})),
     guests:['디렉터','앰버서더'].flatMap(type=>{
       const records=guests.filter(row=>row.type===type);
       return records.length?[{type,names:records.map(row=>row.name+' '+row.status)}]:[];
@@ -229,17 +242,18 @@ export function memberPatchChanges(state,patches,targetIds){
   if(targets.length!==patches.length||new Set(targets).size!==targets.length||targets.some(id=>!members.has(id))){
     throw Error('수정 항목마다 서로 다른 기존 회원을 선택하세요.');
   }
+  const fields=['name','chapterRole','committeeDuty','listeningNumber','greenClub','goldClub','communityBuilder','bniRole'];
   return patches.map((patch,index)=>{
     const row=members.get(targets[index]);
     const updated={...row};
     if(patch.removeViceChair&&committeeRole(row)==='부의장') updated.chapterRole='';
-    for(const field of ['name','chapterRole','committeeDuty','listeningNumber']){
+    for(const field of fields){
       if(Object.hasOwn(patch,field)) updated[field]=patch[field];
     }
     return {table:'members',row:updated};
   }).filter(({row})=>{
     const previous=state.members.find(member=>member.id===row.id);
-    return ['name','chapterRole','committeeDuty','listeningNumber'].some(field=>previous[field]!==row[field]);
+    return fields.some(field=>previous[field]!==row[field]);
   });
 }
 function auditRecord(row){
