@@ -59,3 +59,10 @@ dialog{position:fixed;width:min(calc(100% - 22px),580px);max-height:calc(100dvh 
 .criterion-controls{display:flex;align-items:flex-end;flex-wrap:wrap;gap:8px 12px}
 .criterion-measure{display:flex;flex:0 1 124px;min-width:100px;flex-direction:column;gap:4px;font-size:.75rem;font-weight:700;color:var(--muted)}
 .criterion-measure input{width:100%;min-width:0;padding:0 9px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font-size:1rem}
+
+.metric-members{grid-column:span 2;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 14px}
+.metric-members .metric-top{grid-column:1/-1}
+.metric-members .metric-label{align-self:end;font-size:.95rem}
+.metric-members strong{grid-column:2;grid-row:2/4;align-self:center;font-size:clamp(1.9rem,5vw,2.5rem)}
+.metric-members:only-child{grid-column:1/-1}
+.metric-members:nth-last-child(2)+.metric{grid-column:span 2}

@@ -1,7 +1,7 @@
 export const menus = [
   ['업무관리', [['home','대시보드','⌂'],['board','업무보드','▤'],['meetings','멤버십 회의','▣'],['history','회의록 수정 이력','↺'],['other','기타업무','✓']]],
   ['멤버관리', [['members','멤버현황','♙'],['visitors','비지터관리','↗'],['attendance','출결·병가','◷']]],
-  ['입회 및 갱신', [['admissions','신입승인','＋'],['renewals','갱신승인','✓'],['mpe','갱신심사 및 MPE','★'],['votes','투표','☑']]],
+  ['입회 및 갱신', [['admissions','신입승인','＋'],['renewals','갱신승인','✓'],['votes','투표','☑']]],
   ['위원회 관리', [['letters','컨트롤레터','✉'],['issues','분쟁·이슈','!'],['visits','자방·개방','↔'],['settings','설정','⚙']]],
 ];
 export const entries = menus.flatMap(([, items]) => items);
@@ -148,7 +148,7 @@ export function currentMpe(state,member){
   return live(state.mpe).find(row=>row.member===member.id&&
     (schedule.month?matchesRenewalCycle(schedule,row.cycle):!row.cycle));
 }
-export function renewalGroups(state,today=localDate(),{includeApproved=false}={}){
+export function renewalGroups(state,today=localDate()){
   const month=today.slice(0,7);
   const bands=new Map([0,1,2,3].map((offset,index)=>[
     shiftCalendarMonth(month,offset),['current','one','two','three'][index],
@@ -161,14 +161,13 @@ export function renewalGroups(state,today=localDate(),{includeApproved=false}={}
   for(const {member,schedule} of members){
     const decision=currentRenewal(state,member,today);
     const approvedMonth=(decision?.approvedOn||decision?.date||'').slice(0,7);
-    if(!includeApproved&&isRenewalApproved(decision?.status)&&approvedMonth&&approvedMonth<month) continue;
+    if(isRenewalApproved(decision?.status)&&approvedMonth&&approvedMonth<month) continue;
     const band=schedule.month<month?'expired':bands.get(schedule.month);
     if(band) groups[band].push(member);
   }
   return groups;
 }
 export const renewalTargets=(state,today)=>Object.values(renewalGroups(state,today)).flat();
-export const mpeTargets=state=>Object.values(renewalGroups(state,undefined,{includeApproved:true})).flat();
 export function attendanceFor(state,date,member) {
   const proxy = live(state.visitors).find(row=>row.date===date && row.member===member && row.type==='대리인' && row.status==='참석');
   const row = live(state.attendance).find(row=>row.date===date && row.member===member);
