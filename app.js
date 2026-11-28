@@ -1,4 +1,4 @@
-import {chapterSchedule,memberPatchChanges,orderedMembers,upcomingMeeting,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js';
+import {calendarDays,shiftCalendarMonth,memberPatchChanges,orderedMembers,upcomingMeeting,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js';
 import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js';
 import {openStore} from './storage.js';
 import {attachmentFields,readAttachments,reportPng} from './media.js';
@@ -6,7 +6,7 @@ import {attachmentFields,readAttachments,reportPng} from './media.js';
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
 let store,state,meeting,query='',mpeMember='',attendanceMode='meeting',historyMode='meetings',renewalFilter='all';
-let meetingPinned=false,lastUpcoming;
+let meetingPinned=false,lastUpcoming,calendarMonth;
 let promptInstall,reportFile,reportUrl,reportRevision=0;
 let toastTimer;
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();promptInstall=event;});
@@ -87,7 +87,8 @@ function dashboard(){
 
   ];
   return `<div class="welcome"><div><h1>멤버십 대시보드</h1><p>미다스챕터 멤버십위원회 전용 업무관리 서비스</p></div>${statusPill(store.demo?'가상 데이터':admin()?'관리자':'위원')}</div>${store.demo?'<p class="demo-note">시연 모드 · 실제 회원 정보는 입력하지 마세요.</p>':''}
-  <div class="hero"><div class="hero-art" aria-hidden="true"></div><div class="hero-info"><span class="hero-label">◷　다음 주간회의</span><h2>${prettyDate(date)} · ${weeklyMeetingTime}</h2><p>한국시간 · 주간회의</p></div><div class="hero-actions">${canOpen('attendance')?btn('출결 기록　→','go:attendance','hero-button'):''}${btn('주간보고 만들기　↗','report','hero-outline')}${btn('챕터 일정표　↗','go:schedule','hero-outline')}</div></div>
+  <div class="hero"><div class="hero-art" aria-hidden="true"></div><div class="hero-info"><span class="hero-label">◷　다음 주간회의</span><h2>${prettyDate(date)} · ${weeklyMeetingTime}</h2><p>한국시간 · 주간회의</p></div><div class="hero-actions">${canOpen('attendance')?btn('출결 기록　→','go:attendance','hero-button'):''}${btn('주간보고 만들기　↗','report','hero-outline')}</div></div>
+  ${calendar()}
   ${section('운영 현황',`<div class="metrics">${metrics.filter(([id])=>canOpen(id)).map(metricCard).join('')}</div><div class="dashboard-shortcuts">${[
     ['meetings','멤버십 회의',live(state.meetings).length,'건','▣','회의록 바로 가기'],
     ['board','업무보드',board.length,'건','▤','전체 업무 바로 가기'],
@@ -153,6 +154,7 @@ function edit(table,id='',defaults={}){
       if(!Number.isInteger(updated.listeningNumber)||updated.listeningNumber<1) throw Error('경청표 번호는 1 이상의 정수로 입력하세요.');
       if(live(state.members).some(member=>member.id!==row.id&&Number(member.listeningNumber)===updated.listeningNumber)) throw Error('이미 사용 중인 경청표 번호입니다.');
     }
+    if(isSchedule) calendarMonth=updated.date.slice(0,7);
     if(table==='meetings'){
       const data=new FormData(form);
       const eligible=new Set(meetingParticipants(state).map(member=>member.id));
@@ -272,16 +274,44 @@ function history(){
   const rows=[...state.audit].reverse().filter(row=>historyMode==='all'||row.table==='meetings');
   return heading('회의록 수정 이력')+`<div class="tabs">${btn('회의록','history:meetings')}${btn('전체 변경','history:all')}</div>`+(rows.map(row=>rowCard(row.after?.name||nameOf(row.after?.member)||labelOf(row.table),new Date(row.date).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+' · '+row.actor,'audit:'+row.id)).join('')||empty('기록된 변경이 없습니다.'));
 }
+const monthLabel=month=>new Intl.DateTimeFormat('ko-KR',{year:'numeric',month:'long',timeZone:'UTC'})
+  .format(new Date(month+'-01T00:00:00Z'));
+function calendar(){
+  const today=localDate();
+  const month=calendarMonth||today.slice(0,7);
+  const cells=calendarDays(state,month);
+  const addDate=today.startsWith(month)?today:month+'-01';
+  return `<section class="calendar-panel" aria-labelledby="calendar-title">
+    <div class="calendar-header">
+      <h2 id="calendar-title">${route()==='schedule'?'월간 일정':'챕터 일정표'}</h2>
+      <div class="calendar-month">
+        <button type="button" class="text-button" data-action="calendar-month:-1" aria-label="이전 달">‹</button>
+        <strong>${e(monthLabel(month))}</strong>
+        <button type="button" class="text-button" data-action="calendar-month:1" aria-label="다음 달">›</button>
+      </div>
+      <div class="calendar-tools">${btn('오늘','calendar-today')}${btn('＋ 일정','calendar-add:'+addDate,'primary')}</div>
+    </div>
+    <div class="calendar-grid">
+      ${['일','월','화','수','목','금','토'].map((label,index)=>`<span class="calendar-weekday ${index===0?'sunday':index===6?'saturday':''}">${label}</span>`).join('')}
+      ${cells.map(cell=>`<button type="button" class="calendar-day ${cell.inMonth?'':'outside'} ${cell.weekday===0?'sunday':cell.weekday===6?'saturday':''}" data-action="calendar-day:${cell.date}" aria-label="${cell.date} 일정 ${cell.items.length}건" ${cell.date===today?'aria-current="date"':''}>
+        <span class="calendar-number">${cell.day}</span>
+        ${cell.items.slice(0,1).map(item=>`<span class="calendar-event ${item.recurring?'recurring':''}">${e(item.name)}</span>`).join('')}
+        ${cell.items.length>1?`<span class="calendar-more">+${cell.items.length-1}</span>`:''}
+      </button>`).join('')}
+    </div>
+  </section>`;
+}
+function showCalendarDay(date){
+  const entry=calendarDays(state,date.slice(0,7)).find(cell=>cell.date===date);
+  const rows=entry.items.map(item=>{
+    const description=[item.time,item.location,item.type].filter(Boolean).join(' · ');
+    return item.recurring?`<div class="panel"><strong>${e(item.name)}</strong><p>${e(description)}</p></div>`:
+      rowCard(item.name,description,'edit-schedule:'+item.id);
+  }).join('');
+  modal(e(prettyDate(date))+' 일정',`<div class="toolbar">${btn('＋ 일정 등록','calendar-add:'+date,'primary')}</div>`+(rows||empty('등록된 일정이 없습니다.')));
+}
 function schedule(){
-  const date=localDate();
-  const records=chapterSchedule(state);
-  const next=upcomingMeeting(state);
-  const regular=records.some(row=>row.type==='주간회의'&&row.date===next&&row.time===weeklyMeetingTime)?'':
-    `<article class="panel"><strong>주간회의</strong><p>${e(next)} · ${weeklyMeetingTime} · 정기 일정</p></article>`;
-  return heading('챕터 일정표','매주 수요일 08:30 · 한국시간')+
-    `<div class="toolbar">${btn('＋ 일정 등록','edit-schedule','primary')}</div>`+
-    section('예정 일정',regular+(records.filter(row=>row.date>=date).map(row=>rowCard(row.name,[row.date,row.time,row.type,row.location].filter(Boolean).join(' · '),'edit-schedule:'+row.id)).join('')||(!regular?empty('등록된 예정 일정이 없습니다.') : '')))+
-    section('지난 일정',records.filter(row=>row.date<date).reverse().map(row=>rowCard(row.name,[row.date,row.time,row.type].filter(Boolean).join(' · '),'edit-schedule:'+row.id)).join('')||empty('지난 일정이 없습니다.'));
+  return heading('챕터 일정표','매주 수요일 08:30 · 한국시간')+calendar();
 }
 function updateMeetingDate(){
   if(!state||dialog.open) return;
@@ -337,6 +367,10 @@ async function action(value){
   if(type==='close') return closeDialog();
   if(type==='edit') return edit(a,b);
   if(type==='mode'){attendanceMode=a;return render();}
+  if(type==='calendar-month'){calendarMonth=shiftCalendarMonth(calendarMonth||localDate().slice(0,7),Number(a));return render();}
+  if(type==='calendar-today'){calendarMonth=localDate().slice(0,7);return render();}
+  if(type==='calendar-day') return showCalendarDay(a);
+  if(type==='calendar-add') return edit('other','',{kind:'chapter-schedule',date:a});
   if(type==='edit-schedule') return edit('other',a,{kind:'chapter-schedule',date:localDate()});
   if(type==='renewal-filter'){renewalFilter=a;return render();}
   if(type==='renewal') return edit('renewals','',{member:a});

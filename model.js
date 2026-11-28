@@ -44,6 +44,31 @@ export function chapterSchedule(state){
   return live(state.other).filter(row=>row.kind==='chapter-schedule')
     .sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time,'en'));
 }
+export function shiftCalendarMonth(month,offset){
+  const date=new Date(month+'-01T00:00:00Z');
+  date.setUTCMonth(date.getUTCMonth()+offset);
+  return date.toISOString().slice(0,7);
+}
+export function calendarDays(state,month){
+  const start=new Date(month+'-01T00:00:00Z');
+  const next=new Date(shiftCalendarMonth(month,1)+'-01T00:00:00Z');
+  const records=chapterSchedule(state);
+  const day=new Date(start);
+  day.setUTCDate(day.getUTCDate()-day.getUTCDay());
+  const cells=[];
+  do {
+    const date=day.toISOString().slice(0,10);
+    const weekday=day.getUTCDay();
+    const items=records.filter(row=>row.date===date);
+    if(weekday===3&&!items.some(row=>row.type==='주간회의')){
+      items.push({name:'주간회의',date,time:weeklyMeetingTime,type:'주간회의',recurring:true});
+      items.sort((a,b)=>(a.time||'').localeCompare(b.time||'','en'));
+    }
+    cells.push({date,day:day.getUTCDate(),weekday,inMonth:date.startsWith(month),items});
+    day.setUTCDate(day.getUTCDate()+1);
+  } while(day<next||day.getUTCDay()!==0);
+  return cells;
+}
 const committeeRole=member=>String(member.chapterRole||'').replace(/\s+/g,'');
 export function meetingParticipants(state){
   return live(state.members).filter(member=>member.status==='활동'&&
