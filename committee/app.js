@@ -1,7 +1,7 @@
-import {chapterRoster,isWithdrawn,calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,isRenewalApproved,renewalGroups,renewalTargets,mpeTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=175bd5796e23';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=175bd5796e23';
-import {openStore} from './storage.js?v=175bd5796e23';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=175bd5796e23';
+import {chapterRoster,isWithdrawn,calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,isRenewalApproved,renewalGroups,renewalTargets,mpeTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=ebe62fd7cfe8';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=ebe62fd7cfe8';
+import {openStore} from './storage.js?v=ebe62fd7cfe8';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=ebe62fd7cfe8';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');

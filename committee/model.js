@@ -111,11 +111,12 @@ export const isRenewalApproved=status=>status==='승인'||status==='조건부 �
 export function currentRenewal(state,member){
   const expiry=member.expiry;
   if(!expiry) return undefined;
-  const earliest=shiftCalendarMonth(expiry.slice(0,7),-3)+'-01';
+  const expiryMonth=expiry.slice(0,7);
+  const earliest=shiftCalendarMonth(expiryMonth,-3)+'-01';
   return live(state.renewals).filter(row=>{
     if(row.member!==member.id) return false;
-    if(row.cycle!==undefined) return row.cycle===expiry;
-    if(row.due) return row.due===expiry;
+    const cycleDate=row.cycle??row.due;
+    if(cycleDate) return cycleDate.slice(0,7)===expiryMonth;
     return row.date>=earliest;
   }).sort((a,b)=>(b.approvedOn||b.date||'').localeCompare(a.approvedOn||a.date||'','en')||
     (b.updatedAt||'').localeCompare(a.updatedAt||'','en'))[0];
