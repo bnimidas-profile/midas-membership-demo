@@ -1,7 +1,7 @@
-import {chapterRoster,isWithdrawn,calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,isRenewalApproved,renewalGroups,renewalTargets,mpeTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=b09c74bfa17e';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=b09c74bfa17e';
-import {openStore} from './storage.js?v=b09c74bfa17e';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=b09c74bfa17e';
+import {chapterRoster,isWithdrawn,calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,isRenewalApproved,renewalGroups,renewalTargets,mpeTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=d40d9b42d6be';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=d40d9b42d6be';
+import {openStore} from './storage.js?v=d40d9b42d6be';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=d40d9b42d6be';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
@@ -71,6 +71,18 @@ const prettyDate=date=>date?new Intl.DateTimeFormat('ko-KR',{month:'long',day:'n
 const statusColors={'정상 출석':'green','참석':'green','완료':'green','갱신완료':'green','승인':'green','조건부 승인':'amber','활동':'green','충족':'green','병가':'blue','대리인':'violet','조퇴':'teal','지각':'amber','결석':'red','불참':'red','보완 필요':'red','미갱신':'red','휴회':'gray','미확인':'gray'};
 const statusPill=status=>status?`<span class="pill ${statusColors[status]||''}">${e(status)}</span>`:'';
 const renewalStatus=status=>status==='승인'?'갱신완료':status;
+const memberBadges=[
+  ['goldClub','골드클럽','gold'],
+  ['greenClub','그린클럽','green'],
+  ['communityBuilder','커뮤니티 빌더','plum'],
+  ['director','디렉터','blue'],
+  ['ambassador','엠버서더','yellow'],
+];
+function hasMemberBadge(member,key){
+  if(key==='director') return member.director??(member.bniRole==='디렉터');
+  if(key==='ambassador') return member.ambassador??['앰버서더','엠버서더'].includes(member.bniRole);
+  return Boolean(member[key]);
+}
 function rowCard(title,sub,action,end='',badges=''){
   return `<button class="list-row" data-action="${e(action)}"><span><span class="row-title"><strong>${e(title)}</strong>${badges}</span><small>${e(sub)}</small></span><span class="row-end">${end}<span class="chevron">›</span></span></button>`;
 }
@@ -111,11 +123,13 @@ function listContent(table){
   const filtered=candidates.filter(row=>[table==='visits'?'':row.name,nameOf(row.member),row.displayNumber,row.company,row.status,row.type,row.date,row.notes].join(' ').toLowerCase().includes(query.toLowerCase()));
   return filtered.map(row=>{
     if(table==='members'){
-      const badges=[
-        row.greenClub&&['그린클럽','green'],row.goldClub&&['골드클럽','amber'],
-        row.communityBuilder&&['커뮤니티빌더','blue'],row.bniRole&&[row.bniRole,'violet'],
-      ].filter(Boolean).map(([label,color])=>`<span class="pill ${color}">${e(label)}</span>`).join('');
-      return rowCard((row.displayNumber?row.displayNumber+'. ':'')+row.name,row.company,'edit:members:'+row.id,statusPill(row.status),badges);
+      const badges=memberBadges.filter(([key])=>hasMemberBadge(row,key)).map(([,label,color])=>
+        `<span class="member-badge badge-${color}">${label}</span>`).join('');
+      const title=(row.displayNumber?row.displayNumber+'. ':'')+row.name;
+      const work=[row.company,row.specialty].filter(Boolean).join(' · ');
+      const details=rowCard(title,work,'edit:members:'+row.id,statusPill(row.status),badges);
+      const settings=admin()?`<button type="button" class="badge-settings" data-action="member-badges:${e(row.id)}" aria-label="${e(row.name)} 표시 설정">표시 설정</button>`:'';
+      return `<div class="member-row">${details}${settings}</div>`;
     }
     const title=table==='visits'?(nameOf(row.member)||row.type):row.name||nameOf(row.member);
     const action=table==='votes'?'ballot:'+row.id:'edit:'+table+':'+row.id;
@@ -542,6 +556,22 @@ function reviewMemberPatches(patches,targets){
     if(pending.length) await save(pending);else notify('이미 반영된 멤버 수정입니다.');
   },'선택한 회원에 적용');
 }
+function editMemberBadges(id){
+  if(!admin()) return;
+  const member=live(state.members).find(row=>row.id===id&&!isWithdrawn(row.status));
+  if(!member) return;
+  const options=memberBadges.map(([key,label,color])=>`<label class="badge-option">
+    <input type="checkbox" name="${key}" ${hasMemberBadge(member,key)?'checked':''}>
+    <span class="member-badge badge-${color}">${label}</span>
+  </label>`).join('');
+  modal(e(member.name)+' · 표시 설정',`<fieldset class="badge-options"><legend>이름 옆에 표시할 항목</legend>${options}</fieldset>`,async form=>{
+    const data=new FormData(form);
+    const badges=Object.fromEntries(memberBadges.map(([key])=>[key,data.has(key)]));
+    if(memberBadges.some(([key])=>badges[key]!==hasMemberBadge(member,key))){
+      await save([upsert('members',{...member,...badges})]);
+    }
+  });
+}
 async function openBallot(id){
   const row=live(state.votes).find(vote=>vote.id===id);
   if(!row) return;
@@ -587,6 +617,7 @@ async function action(value){
   if(!state && !['login','logout'].includes(type)) return;
   if(type==='close') return closeDialog();
   if(type==='edit') return edit(a,b);
+  if(type==='member-badges') return editMemberBadges(a);
   if(type==='ballot') return openBallot(a);
   if(type==='mode'){attendanceMode=a;return render();}
   if(type==='calendar-month'){calendarMonth=shiftCalendarMonth(calendarMonth||localDate().slice(0,7),Number(a));return render();}

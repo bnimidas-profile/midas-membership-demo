@@ -1,4 +1,4 @@
-import {visitorTypes,statuses,live} from './model.js?v=b09c74bfa17e';
+import {visitorTypes,statuses,live} from './model.js?v=d40d9b42d6be';
 const f=(key,label,type='text',options)=>({key,label,type,options});
 const name=(label='제목')=>f('name',label);
 const date=(label='날짜')=>f('date',label,'date');
@@ -10,7 +10,7 @@ export const scheduleFields=[name('일정명'),date('시작 날짜'),f('time','�
 export const fields={
   board:task,other:task,
   meetings:[date('회의 날짜'),name('회의 제목')],
-  members:[name('이름'),f('listeningNumber','경청표 번호','number'),f('company','회사명'),f('specialty','전문분야'),f('chapterRole','챕터 직무'),f('greenClub','그린클럽','checkbox'),f('goldClub','골드클럽','checkbox'),f('communityBuilder','커뮤니티빌더','checkbox'),select('bniRole','BNI 역할','','디렉터','앰버서더'),select('renewalMonth','갱신월','',...Array.from({length:12},(_,index)=>(index+1)+'월')),select('status','상태','활동','휴회','탈회'),f('joined','입회일','date'),f('expiry','갱신 만료일','date'),notes()],
+  members:[name('이름'),f('listeningNumber','경청표 번호','number'),f('company','회사명'),f('specialty','전문분야'),f('chapterRole','챕터 직무'),select('renewalMonth','갱신월','',...Array.from({length:12},(_,index)=>(index+1)+'월')),select('status','상태','활동','휴회','탈회'),f('joined','입회일','date'),f('expiry','갱신 만료일','date'),notes()],
   visitors:[name('성명'),date('주간회의 날짜'),select('type','방문 유형',...visitorTypes),f('company','회사명'),f('specialty','전문분야'),f('inviter','초청 멤버','member'),member('대리 참석 대상 멤버'),select('status','참석 상태','참석 예정','참석','불참'),notes(),f('followup','후속 관리','textarea')],
   attendance:[select('status','출결 상태',...statuses),f('early','지각과 동시에 조퇴','checkbox'),f('proxy','대리인 성명'),notes()],
   leaves:[member(),f('applied','신청일','date'),f('start','시작일','date'),f('end','종료일','date'),select('status','승인 여부','검토 중','승인','반려'),notes()],

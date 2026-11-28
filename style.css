@@ -27,8 +27,31 @@ dialog{position:fixed;width:min(calc(100% - 22px),580px);max-height:calc(100dvh 
 .renewal-group .section-head{padding:8px 12px;border-radius:9px;background:var(--renewal-background);color:var(--renewal-ink);border-inline-start:4px solid var(--renewal-accent)}.renewal-count{font-size:.82rem;font-weight:700}.renewal-current{--renewal-background:#fae0e8;--renewal-ink:#80112e;--renewal-accent:#b51232}.renewal-one{--renewal-background:#feecef;--renewal-ink:#881436;--renewal-accent:#ca3656}.renewal-two{--renewal-background:#fff1dd;--renewal-ink:#734608;--renewal-accent:#bd7819}.renewal-three{--renewal-background:#e9f1fb;--renewal-ink:#244b76;--renewal-accent:#527da9}.renewal-expired{--renewal-background:#eeedf1;--renewal-ink:#514d5a;--renewal-accent:#88818f}
 
 .row-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .4rem}
-.row-title .pill{font-size:.69rem;white-space:nowrap}
+
 .ballot-choices{display:flex;flex-wrap:wrap;gap:.5rem}
 .ballot-results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem;margin:1rem 0}
 .ballot-results>span{border:1px solid var(--border,#e3e3e7);border-radius:.75rem;padding:.65rem;text-align:center}
 .ballot-results strong{display:block;margin-top:.25rem}
+
+
+.member-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;background:#fff;border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow)}
+.member-row .list-row{flex:1;min-width:0;margin:0;background:none;border:0;box-shadow:none}
+.member-row .list-row>span:first-child{min-width:0}
+.member-row .row-end{flex:none;flex-wrap:nowrap;gap:5px}
+.member-row .row-end .pill{padding:3px 6px}
+.badge-settings{flex:none;margin-right:8px;padding:0 8px;border:0;border-radius:8px;background:#fff0f3;color:var(--red);font-size:.72rem;font-weight:750;white-space:nowrap}
+.member-badge{display:inline-block;padding:2px 6px;border-radius:99px;border:1px solid var(--badge-border);background:var(--badge-bg);color:var(--badge-ink);font-size:.68rem;font-weight:750;line-height:1.35;white-space:nowrap}
+.badge-gold{--badge-bg:#f6e4b4;--badge-border:#d2ae61;--badge-ink:#674515}
+.badge-green{--badge-bg:#e1f4e9;--badge-border:#acd7c0;--badge-ink:#11603d}
+.badge-plum{--badge-bg:#eee5f3;--badge-border:#ceb9d8;--badge-ink:#5b3966}
+.badge-blue{--badge-bg:#e3efff;--badge-border:#aecbf0;--badge-ink:#184e89}
+.badge-yellow{--badge-bg:#fff5bb;--badge-border:#e6ce65;--badge-ink:#645400}
+.badge-options{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 0;margin:0;border:0}
+.badge-options legend{font-weight:700}
+.badge-option{display:inline-flex;position:relative;align-items:center;cursor:pointer}
+.badge-option input{position:absolute;opacity:0;width:1px;height:1px;min-height:0;margin:0}
+.badge-option .member-badge{display:flex;align-items:center;gap:5px;min-height:44px;padding:6px 12px;background:#fff;border-color:var(--line);color:var(--muted);font-size:.84rem}
+.badge-option .member-badge::before{content:'';display:grid;place-items:center;width:14px;height:14px;border:1px solid currentColor;border-radius:4px;font-size:.65rem}
+.badge-option input:checked+.member-badge{background:var(--badge-bg);border-color:var(--badge-border);color:var(--badge-ink)}
+.badge-option input:checked+.member-badge::before{content:'✓'}
+.badge-option input:focus-visible+.member-badge{outline:3px solid #f07692;outline-offset:2px}
