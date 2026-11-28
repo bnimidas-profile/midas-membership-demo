@@ -1,7 +1,7 @@
-import {calendarDays,shiftCalendarMonth,memberPatchChanges,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=f1b018187c1a';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=f1b018187c1a';
-import {openStore} from './storage.js?v=f1b018187c1a';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=f1b018187c1a';
+import {calendarDays,shiftCalendarMonth,memberPatchChanges,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=dc11742a6626';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=dc11742a6626';
+import {openStore} from './storage.js?v=dc11742a6626';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=dc11742a6626';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
@@ -314,8 +314,8 @@ function mpeScreen(){
   const minimum=row.mpeMinimum;
   return `${btn('← 평가 대상 목록','mpeback','text-button')}${heading(e(member.name),'갱신 MPE 평가')}${!row.confirmed?'<div class="notice">임시 평가표입니다. 실제 8개 항목과 배점을 확인한 뒤 설정에서 교체하세요.</div>':''}
     <form id="mpe-form" data-member="${e(member.id)}"><div class="panel eval-progress"><div><strong id="score">${minimum?'충족 '+info.total+' / '+row.criteria.length+' 항목':info.total+' / '+info.max+'점'}</strong><span id="progress-label">${info.answered} / ${row.criteria.length} 항목</span></div><progress id="progress" value="${info.answered}" max="${row.criteria.length||1}"></progress>${minimum?`<p>스프레드시트 기준 · ${minimum}개 이상 충족</p>`:''}</div>
-    ${row.criteria.map((item,i)=>`<fieldset class="panel criterion"><legend>${e(item.name)}</legend><div class="score-options">${item.scores.map(score=>`<label><input type="radio" name="score-${i}" value="${e(score)}" ${row.scores[i]===score?'checked':''}><span>${minimum?(score===1?'충족':'미충족'):e(score)}</span></label>`).join('')}</div></fieldset>`).join('')}
-    <div class="panel form-panel"><fieldset class="assessment"><legend>MPE 종합 판정</legend><div class="score-options">${['충족','보완 필요'].map(value=>`<label><input type="radio" name="assessment" value="${value}" ${row.assessment===value?'checked':''}><span class="${statusColors[value]}">${value}</span></label>`).join('')}</div></fieldset>${formFields(fields.mpe,row,state)}${attachmentFields('mpe',row,store.demo)}</div><div class="toolbar">${btn('출결 이력','stats:'+member.id)}${btn('평가 이력','mpehistory:'+member.id)}<button name="mode" value="draft" class="secondary">임시 저장</button><button name="mode" value="complete" class="primary">완료 처리</button></div><p class="form-error" role="alert"></p></form>`;
+    ${row.criteria.map((item,i)=>`<fieldset class="panel criterion" aria-labelledby="criterion-${i}"><h3 class="criterion-title" id="criterion-${i}">${e(item.name)}</h3><div class="score-options">${item.scores.map(score=>`<label><input type="radio" name="score-${i}" value="${e(score)}" ${row.scores[i]===score?'checked':''}><span class="${minimum?(score===1?'green':'red'):''}">${minimum?(score===1?'충족':'미충족'):e(score)}</span></label>`).join('')}</div></fieldset>`).join('')}
+    <div class="panel form-panel"><fieldset class="assessment" aria-labelledby="assessment-title"><h3 class="criterion-title" id="assessment-title">MPE 종합 판정</h3><div class="score-options">${['충족','보완 필요'].map(value=>`<label><input type="radio" name="assessment" value="${value}" ${row.assessment===value?'checked':''}><span class="${statusColors[value]}">${value}</span></label>`).join('')}</div></fieldset>${formFields(fields.mpe,row,state)}${attachmentFields('mpe',row,store.demo)}</div><div class="toolbar">${btn('출결 이력','stats:'+member.id)}${btn('평가 이력','mpehistory:'+member.id)}<button name="mode" value="draft" class="secondary">임시 저장</button><button name="mode" value="complete" class="primary">완료 처리</button></div><p class="form-error" role="alert"></p></form>`;
 }
 function readScores(form,criteria){
   const data=new FormData(form);
