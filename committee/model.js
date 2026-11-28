@@ -96,17 +96,11 @@ export function meetingParticipants(state){
 }
 
 export const config = state => live(state.settings)[0] || {...seed().settings[0],next:'',criteria:[]};
-function dateAfterMonths(date,offset){
-  const target=shiftCalendarMonth(date.slice(0,7),offset);
-  const [year,month]=target.split('-').map(Number);
-  const day=Math.min(Number(date.slice(8)),new Date(Date.UTC(year,month,0)).getUTCDate());
-  return target+'-'+String(day).padStart(2,'0');
-}
 export const isRenewalApproved=status=>status==='승인'||status==='조건부 승인';
 export function currentRenewal(state,member){
   const expiry=member.expiry;
   if(!expiry) return undefined;
-  const earliest=dateAfterMonths(expiry,-3);
+  const earliest=shiftCalendarMonth(expiry.slice(0,7),-3)+'-01';
   return live(state.renewals).filter(row=>{
     if(row.member!==member.id) return false;
     if(row.cycle!==undefined) return row.cycle===expiry;
@@ -115,28 +109,24 @@ export function currentRenewal(state,member){
   }).sort((a,b)=>(b.approvedOn||b.date||'').localeCompare(a.approvedOn||a.date||'','en')||
     (b.updatedAt||'').localeCompare(a.updatedAt||'','en'))[0];
 }
-export function renewalCompletion(record,today=localDate()){
-  const date=record?.approvedOn||record?.date;
-  return date&&date<=today&&isRenewalApproved(record.status)?date:'';
-}
-export function renewalGroups(state,today=localDate()){
-  const deadlines=[1,2,3].map(offset=>dateAfterMonths(today,offset));
-  const groups={one:[],two:[],three:[],expired:[]};
+export function renewalGroups(state,today=localDate(),{includeApproved=false}={}){
+  const month=today.slice(0,7);
+  const bands=new Map([0,1,2,3].map((offset,index)=>[
+    shiftCalendarMonth(month,offset),['current','one','two','three'][index],
+  ]));
+  const groups={current:[],one:[],two:[],three:[],expired:[]};
   const members=live(state.members).filter(row=>row.status==='활동'&&row.expiry)
     .sort((a,b)=>a.expiry.localeCompare(b.expiry,'en')||a.name.localeCompare(b.name,'ko'));
   for(const member of members){
-    const completed=renewalCompletion(currentRenewal(state,member),today);
-    if(completed&&completed.slice(0,7)<today.slice(0,7)) continue;
-    const expiry=member.expiry;
-    if(expiry<today) groups.expired.push(member);
-    else {
-      const index=deadlines.findIndex(deadline=>expiry<=deadline);
-      if(index!==-1) groups[['one','two','three'][index]].push(member);
-    }
+    if(!includeApproved&&isRenewalApproved(currentRenewal(state,member)?.status)) continue;
+    const expiryMonth=member.expiry.slice(0,7);
+    const band=expiryMonth<month?'expired':bands.get(expiryMonth);
+    if(band) groups[band].push(member);
   }
   return groups;
 }
 export const renewalTargets=(state,today)=>Object.values(renewalGroups(state,today)).flat();
+export const mpeTargets=state=>Object.values(renewalGroups(state,undefined,{includeApproved:true})).flat();
 export function attendanceFor(state,date,member) {
   const proxy = live(state.visitors).find(row=>row.date===date && row.member===member && row.type==='대리인' && row.status==='참석');
   const row = live(state.attendance).find(row=>row.date===date && row.member===member);
