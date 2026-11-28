@@ -1,7 +1,7 @@
-import {calendarDays,shiftCalendarMonth,memberPatchChanges,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=dc11742a6626';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=dc11742a6626';
-import {openStore} from './storage.js?v=dc11742a6626';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=dc11742a6626';
+import {calendarDays,shiftCalendarMonth,memberPatchChanges,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=9dd935d4e676';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=9dd935d4e676';
+import {openStore} from './storage.js?v=9dd935d4e676';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=9dd935d4e676';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
@@ -109,11 +109,21 @@ function listContent(table){
   const filtered=candidates.filter(row=>[row.name,nameOf(row.member),row.listeningNumber,row.company,row.status,row.type,row.date,row.notes].join(' ').toLowerCase().includes(query.toLowerCase()));
   return filtered.length?filtered.map(row=>rowCard((table==='members'&&row.listeningNumber?row.listeningNumber+'. ':'')+(row.name||nameOf(row.member)||'기록'),[row.type,row.date||row.due,row.company||row.owner].filter(Boolean).join(' · '),'edit:'+table+':'+row.id,statusPill(row.status))).join(''):empty('표시할 기록이 없습니다.');
 }
+function boardShortcuts(){
+  const shortcuts=['letters','issues','visits','votes']
+    .map(id=>entries.find(([key])=>key===id))
+    .filter(([id])=>canOpen(id))
+    .map(([id,label,symbol])=>btn(icon(symbol)+e(label),'go:'+id,'menu-tile'))
+    .join('');
+  return shortcuts?`<div class="menu-grid board-shortcuts" aria-label="업무 바로가기">${shortcuts}</div>`:'';
+}
 function generic(table){
   const targets=table==='renewals'&&renewalFilter==='all'?section('갱신 대상 멤버',renewalTargets(state).map(row=>rowCard(row.name,'만료일 '+row.expiry,'renewal:'+row.id)).join('')||empty('갱신 대상자가 없습니다.')):'';
   const create=table==='members'&&!admin()?'':btn('＋ 새 기록','edit:'+table,'primary');
   const tabs=table==='renewals'?`<div class="tabs">${btn('전체 기록','renewal-filter:all',renewalFilter==='all'?'selected':'secondary')}${btn('조건부 승인','renewal-filter:conditional',renewalFilter==='conditional'?'selected':'secondary')}</div>`:'';
-  return heading(labelOf(table))+tabs+`<div class="toolbar">${search('이름 또는 기록 검색')}${create}</div><div id="results">${listContent(table)}</div>${targets}`;
+  const records=`<div class="toolbar">${search('이름 또는 기록 검색')}${create}</div><div id="results">${listContent(table)}</div>`;
+  return heading(labelOf(table))+tabs+
+    (table==='board'?boardShortcuts()+section('일반 업무',records):records)+targets;
 }
 function resizeAgenda(input){
   input.style.height='auto';
