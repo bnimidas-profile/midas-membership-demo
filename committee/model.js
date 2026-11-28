@@ -16,11 +16,30 @@ export function nextMeeting(now=new Date()) {
   date.setUTCDate(date.getUTCDate()+(days===0&&seoulClock.format(now)>=weeklyMeetingTime?7:days));
   return date.toISOString().slice(0,10);
 }
-export function upcomingMeeting(state,now=new Date()){
-  const override=config(state).next;
-  const today=localDate(now);
-  return override>today||override===today&&seoulClock.format(now)<weeklyMeetingTime?override:nextMeeting(now);
+function regularMeeting(date){
+  return {id:'weekly-'+date,kind:'chapter-schedule',name:'주간회의',date,time:weeklyMeetingTime,
+    type:'주간회의',regularDate:date,recurring:true};
 }
+export function upcomingMeetingDetails(state,now=new Date()){
+  const records=chapterSchedule(state).filter(row=>row.type==='주간회의'||row.regularDate);
+  const blocked=new Set(records.flatMap(row=>[row.date,row.regularDate].filter(Boolean)));
+  const today=localDate(now);
+  const time=seoulClock.format(now);
+  const future=row=>row.date>today||row.date===today&&(row.time||weeklyMeetingTime)>time;
+  const candidates=records.filter(row=>!row.cancelled&&row.type==='주간회의'&&future(row));
+  const override=config(state).next;
+  const overrideMeeting=regularMeeting(override);
+  if(override&&!blocked.has(override)&&future(overrideMeeting)) candidates.push(overrideMeeting);
+  const regular=new Date(nextMeeting(now)+'T00:00:00Z');
+  let date=regular.toISOString().slice(0,10);
+  while(blocked.has(date)){
+    regular.setUTCDate(regular.getUTCDate()+7);
+    date=regular.toISOString().slice(0,10);
+  }
+  candidates.push(regularMeeting(date));
+  return candidates.sort((a,b)=>(a.date+(a.time||weeklyMeetingTime)).localeCompare(b.date+(b.time||weeklyMeetingTime),'en'))[0];
+}
+export const upcomingMeeting=(state,now)=>upcomingMeetingDetails(state,now).date;
 export const demoChapterRole=index=>index===0?'부의장':index>=1&&index<=4?'멤버십':'';
 export const seed = () => {
   const date = nextMeeting();
@@ -60,8 +79,8 @@ export function calendarDays(state,month){
     const date=day.toISOString().slice(0,10);
     const weekday=day.getUTCDay();
     const items=records.filter(row=>row.date===date);
-    if(weekday===3&&!items.some(row=>row.type==='주간회의')){
-      items.push({name:'주간회의',date,time:weeklyMeetingTime,type:'주간회의',recurring:true});
+    if(weekday===3&&!records.some(row=>row.regularDate===date)&&!items.some(row=>row.type==='주간회의')){
+      items.push(regularMeeting(date));
       items.sort((a,b)=>(a.time||'').localeCompare(b.time||'','en'));
     }
     cells.push({date,day:day.getUTCDate(),weekday,inMonth:date.startsWith(month),items});

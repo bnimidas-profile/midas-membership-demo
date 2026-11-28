@@ -1,4 +1,4 @@
-import {calendarDays,shiftCalendarMonth,memberPatchChanges,orderedMembers,upcomingMeeting,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js';
+import {calendarDays,shiftCalendarMonth,memberPatchChanges,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js';
 import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js';
 import {openStore} from './storage.js';
 import {attachmentFields,readAttachments,reportPng} from './media.js';
@@ -75,7 +75,8 @@ function metricCard([id,label,value,unit,symbol,detail]){
   return `<button class="metric" data-action="go:${id}" aria-label="${label} ${value}${unit}"><div class="metric-top">${icon(symbol)}<span class="chevron">↗</span></div><span class="metric-label">${label}</span><strong>${value}<small>${unit}</small></strong><span class="metric-detail">${detail}</span></button>`;
 }
 function dashboard(){
-  const date=upcomingMeeting(state);
+  const planned=upcomingMeetingDetails(state);
+  const date=planned.date;
   const members=live(state.members).filter(row=>row.status==='활동');
   const board=live(state.board);
   const waiting=renewalTargets(state).filter(member=>!live(state.mpe).some(row=>row.member===member.id&&row.cycle===member.expiry&&row.status==='완료'));
@@ -87,7 +88,7 @@ function dashboard(){
 
   ];
   return `<div class="welcome"><div><h1>멤버십 대시보드</h1><p>미다스챕터 멤버십위원회 전용 업무관리 서비스</p></div>${statusPill(store.demo?'가상 데이터':admin()?'관리자':'위원')}</div>${store.demo?'<p class="demo-note">시연 모드 · 실제 회원 정보는 입력하지 마세요.</p>':''}
-  <div class="hero"><div class="hero-art" aria-hidden="true"></div><div class="hero-info"><span class="hero-label">◷　다음 주간회의</span><h2>${prettyDate(date)} · ${weeklyMeetingTime}</h2><p>한국시간 · 주간회의</p></div><div class="hero-actions">${canOpen('attendance')?btn('출결 기록　→','go:attendance','hero-button'):''}${btn('주간보고 만들기　↗','report','hero-outline')}</div></div>
+  <div class="hero"><div class="hero-art" aria-hidden="true"></div><div class="hero-info"><span class="hero-label">◷　다음 주간회의</span><h2>${prettyDate(date)} · ${e(planned.time||weeklyMeetingTime)}</h2><p>한국시간 · 주간회의${planned.location?' · '+e(planned.location):''}</p></div><div class="hero-actions">${canOpen('attendance')?btn('출결 기록　→','go:attendance','hero-button'):''}${btn('주간보고 만들기　↗','report','hero-outline')}</div></div>
   ${calendar()}
   ${section('운영 현황',`<div class="metrics">${metrics.filter(([id])=>canOpen(id)).map(metricCard).join('')}</div><div class="dashboard-shortcuts">${[
     ['meetings','멤버십 회의',live(state.meetings).length,'건','▣','회의록 바로 가기'],
@@ -146,15 +147,25 @@ function edit(table,id='',defaults={}){
   const row=existing||{id:crypto.randomUUID(),date:meeting,applied:localDate(),...defaults};
   const isSchedule=table==='other'&&row.kind==='chapter-schedule';
   const inputs=isSchedule?scheduleFields:fields[table];
-  const trash=existing&&admin()?`<div class="editor-meta">등록 ${e(existing.createdBy||'샘플')} · 수정 ${e(existing.updatedBy||'—')} ${btn('휴지통으로 이동','delete:'+table+':'+existing.id,'danger')}</div>`:'';
-  modal(e(isSchedule?'챕터 일정':labelOf(table))+(existing?' 수정':' 등록'),(table==='meetings'?meetingFields(row):formFields(inputs,row,state))+attachmentFields(table,row,store.demo)+trash,async form=>{
+  const weekly=isSchedule&&(row.type==='주간회의'||row.regularDate);
+  const meetingOption=weekly?btn(row.cancelled?'주간회의 다시 표시':'이 날 주간회의 없음','weekly-toggle:'+row.date+':'+row.id):'';
+  const trash=existing&&admin()&&!weekly?`<div class="editor-meta">등록 ${e(existing.createdBy||'샘플')} · 수정 ${e(existing.updatedBy||'—')} ${btn('휴지통으로 이동','delete:'+table+':'+existing.id,'danger')}</div>`:'';
+  modal(e(isSchedule?'챕터 일정':labelOf(table))+(existing||row.regularDate?' 수정':' 등록'),(table==='meetings'?meetingFields(row):formFields(inputs,row,state))+attachmentFields(table,row,store.demo)+meetingOption+trash,async form=>{
     const updated={...row,...readFields(form,inputs)};
     if('name' in updated&&!updated.name) throw Error('이름 또는 제목을 입력하세요.');
     if(table==='members'&&updated.listeningNumber!==null){
       if(!Number.isInteger(updated.listeningNumber)||updated.listeningNumber<1) throw Error('경청표 번호는 1 이상의 정수로 입력하세요.');
       if(live(state.members).some(member=>member.id!==row.id&&Number(member.listeningNumber)===updated.listeningNumber)) throw Error('이미 사용 중인 경청표 번호입니다.');
     }
-    if(isSchedule) calendarMonth=updated.date.slice(0,7);
+    if(isSchedule){
+      if(weekly&&updated.type!=='주간회의'){
+        throw Error('주간회의를 변경하려면 일정 구분을 주간회의로 유지하세요.');
+      }
+      if(weekly&&!updated.regularDate&&updated.date!==row.date&&new Date(row.date+'T00:00:00Z').getUTCDay()===3){
+        updated.regularDate=row.date;
+      }
+      calendarMonth=updated.date.slice(0,7);
+    }
     if(table==='meetings'){
       const data=new FormData(form);
       const eligible=new Set(meetingParticipants(state).map(member=>member.id));
@@ -295,18 +306,20 @@ function calendar(){
       ${['일','월','화','수','목','금','토'].map((label,index)=>`<span class="calendar-weekday ${index===0?'sunday':index===6?'saturday':''}">${label}</span>`).join('')}
       ${cells.map(cell=>`<button type="button" class="calendar-day ${cell.inMonth?'':'outside'} ${cell.weekday===0?'sunday':cell.weekday===6?'saturday':''}" data-action="calendar-day:${cell.date}" aria-label="${cell.date} 일정 ${cell.items.length}건" ${cell.date===today?'aria-current="date"':''}>
         <span class="calendar-number">${cell.day}</span>
-        ${cell.items.slice(0,1).map(item=>`<span class="calendar-event ${item.recurring?'recurring':''}">${e(item.name)}</span>`).join('')}
+        ${cell.items.slice(0,1).map(item=>`<span class="calendar-event ${item.cancelled?'cancelled':item.recurring?'recurring':''}">${e(item.cancelled?'주간회의 없음':item.name)}</span>`).join('')}
         ${cell.items.length>1?`<span class="calendar-more">+${cell.items.length-1}</span>`:''}
       </button>`).join('')}
     </div>
   </section>`;
 }
+function calendarDay(date){
+  return calendarDays(state,date.slice(0,7)).find(cell=>cell.date===date);
+}
 function showCalendarDay(date){
-  const entry=calendarDays(state,date.slice(0,7)).find(cell=>cell.date===date);
-  const rows=entry.items.map(item=>{
-    const description=[item.time,item.location,item.type].filter(Boolean).join(' · ');
-    return item.recurring?`<div class="panel"><strong>${e(item.name)}</strong><p>${e(description)}</p></div>`:
-      rowCard(item.name,description,'edit-schedule:'+item.id);
+  const rows=calendarDay(date).items.map(item=>{
+    const description=item.cancelled?'취소된 정기 일정':[item.time,item.location,item.type].filter(Boolean).join(' · ');
+    return rowCard(item.cancelled?'주간회의 없음':item.name,description,
+      item.recurring?'edit-weekly:'+date:'edit-schedule:'+item.id);
   }).join('');
   modal(e(prettyDate(date))+' 일정',`<div class="toolbar">${btn('＋ 일정 등록','calendar-add:'+date,'primary')}</div>`+(rows||empty('등록된 일정이 없습니다.')));
 }
@@ -371,6 +384,23 @@ async function action(value){
   if(type==='calendar-today'){calendarMonth=localDate().slice(0,7);return render();}
   if(type==='calendar-day') return showCalendarDay(a);
   if(type==='calendar-add') return edit('other','',{kind:'chapter-schedule',date:a});
+  if(type==='edit-weekly'){
+    const item=calendarDay(a).items.find(row=>row.recurring);
+    if(item){
+      const {recurring,...defaults}=item;
+      return edit('other',item.id,defaults);
+    }
+  }
+  if(type==='weekly-toggle'){
+    const saved=live(state.other).find(row=>row.id===b&&row.kind==='chapter-schedule');
+    const item=saved||calendarDay(a).items.find(row=>row.id===b&&row.recurring);
+    if(!item) return;
+    const {recurring,...row}=item;
+    const cancelled=!row.cancelled;
+    const label=cancelled?'주간회의 없음':'주간회의 다시 표시';
+    return modal(label, `<p>${e(prettyDate(a))}의 주간회의를 ${cancelled?'취소합니다.':'다시 표시합니다.'}</p>`,
+      ()=>save([upsert('other',{...row,cancelled})]),label);
+  }
   if(type==='edit-schedule') return edit('other',a,{kind:'chapter-schedule',date:localDate()});
   if(type==='renewal-filter'){renewalFilter=a;return render();}
   if(type==='renewal') return edit('renewals','',{member:a});
