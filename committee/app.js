@@ -1,7 +1,7 @@
-import {chapterRoster,isWithdrawn,calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,isRenewalApproved,renewalGroups,renewalTargets,mpeTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=d40d9b42d6be';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=d40d9b42d6be';
-import {openStore} from './storage.js?v=d40d9b42d6be';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=d40d9b42d6be';
+import {chapterRoster,isWithdrawn,calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,currentMpe,renewalSchedule,isRenewalApproved,renewalGroups,renewalTargets,mpeTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=88757a5e7318';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=88757a5e7318';
+import {openStore} from './storage.js?v=88757a5e7318';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=88757a5e7318';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
@@ -95,7 +95,7 @@ function dashboard(){
   const date=planned.date;
   const members=live(state.members).filter(row=>row.status==='활동');
   const board=live(state.board);
-  const waiting=mpeTargets(state).filter(member=>!live(state.mpe).some(row=>row.member===member.id&&row.cycle===member.expiry&&row.status==='완료'));
+  const waiting=mpeTargets(state).filter(member=>currentMpe(state,member)?.status!=='완료');
   const metrics=[
     ['members','전체 멤버',members.length,'명','♙','활동 멤버 기준'],
     ['admissions','신규 입회 심사',live(state.admissions).filter(row=>['검토 중','보류'].includes(row.status)).length,'건','＋','검토 또는 보류'],
@@ -149,10 +149,10 @@ function renewalGroupList(){
   const groups=renewalGroups(state);
   return [['one','갱신 1개월 전'],['two','갱신 2개월 전'],['three','갱신 3개월 전'],['current','이번 달 갱신'],['expired','갱신일 경과']]
     .map(([key,title])=>{
-      const rows=groups[key].filter(row=>[row.name,row.expiry].join(' ').toLowerCase().includes(query.toLowerCase()));
+      const rows=groups[key].filter(row=>[row.name,row.renewalMonth,renewalSchedule(row).expiry].join(' ').toLowerCase().includes(query.toLowerCase()));
       if(['current','expired'].includes(key)&&!rows.length) return '';
       return `<div class="renewal-group renewal-${key}">${section(title,
-        rows.map(row=>rowCard(row.name,'만료일 '+row.expiry,'renewal:'+row.id,statusPill(renewalStatus(currentRenewal(state,row)?.status)))).join('')||empty('해당 회원이 없습니다.'),
+        rows.map(row=>rowCard(row.name,[row.renewalMonth&&row.renewalMonth+' 갱신','만료일 '+renewalSchedule(row).expiry].filter(Boolean).join(' · '),'renewal:'+row.id,statusPill(renewalStatus(currentRenewal(state,row)?.status)))).join('')||empty('해당 회원이 없습니다.'),
         `<span class="renewal-count">${rows.length}명</span>`)}</div>`;
     }).join('');
 }
@@ -264,11 +264,23 @@ function openScheduleClock(name){
     });
   });
 }
+function updateMemberExpiry(form){
+  const {renewalMonth,renewalYear,expiry}=form.elements;
+  if(!renewalMonth) return;
+  expiry.readOnly=Boolean(renewalMonth.value);
+  renewalYear.disabled=!renewalMonth.value;
+  if(!renewalMonth.value) return;
+  const schedule=renewalSchedule({renewalMonth:renewalMonth.value,renewalYear:renewalYear.value,expiry:expiry.value});
+  if(!renewalYear.value) renewalYear.value=schedule.month.slice(0,4);
+  expiry.value=schedule.expiry;
+}
 function edit(table,id='',defaults={}){
   const existing=state[table].find(row=>row.id===id);
-  if(table==='members'&&!admin()){if(existing) modal(e(existing.name),`<p>${e(existing.company)} · ${e(existing.specialty)}</p><p>경청표 번호 ${e(chapterRoster(state).find(member=>member.id===id)?.displayNumber||'미등록')} · 챕터 직무 ${e(existing.chapterRole||'미등록')} · 갱신월 ${e(existing.renewalMonth||'미등록')}</p><p>갱신 만료일 ${e(existing.expiry||'미등록')}</p>`);return;}
+  if(table==='members'&&!admin()){if(existing) modal(e(existing.name),`<p>${e(existing.company)} · ${e(existing.specialty)}</p><p>경청표 번호 ${e(chapterRoster(state).find(member=>member.id===id)?.displayNumber||'미등록')} · 챕터 직무 ${e(existing.chapterRole||'미등록')} · 갱신월 ${e(existing.renewalMonth||'미등록')}</p><p>갱신 만료일 ${e(renewalSchedule(existing).expiry||'미등록')}</p>`);return;}
   const row=existing||{id:crypto.randomUUID(),date:table==='visits'?localDate():meeting,applied:localDate(),...defaults};
-  const initial=table==='members'&&isWithdrawn(row.status)?{...row,status:'탈회'}:row;
+  const schedule=table==='members'?renewalSchedule(row):null;
+  const initial=schedule?{...row,status:isWithdrawn(row.status)?'탈회':row.status,expiry:schedule.expiry,
+    renewalYear:row.renewalMonth?schedule.month.slice(0,4):''}:row;
   const isSchedule=table==='other'&&row.kind==='chapter-schedule';
   const inputs=isSchedule?scheduleFields:fields[table];
   const originalTally=table==='votes'&&['yes','no','abstain'].some(key=>Object.hasOwn(row,key));
@@ -284,6 +296,11 @@ function edit(table,id='',defaults={}){
     if(table==='members'&&updated.listeningNumber!==null){
       if(!Number.isInteger(updated.listeningNumber)||updated.listeningNumber<1) throw Error('경청표 번호는 1 이상의 정수로 입력하세요.');
       if(live(state.members).some(member=>member.id!==row.id&&Number(member.listeningNumber)===updated.listeningNumber)) throw Error('이미 사용 중인 경청표 번호입니다.');
+    }
+    if(table==='members'){
+      if(updated.renewalMonth&&!/^[1-9][0-9]{3}$/.test(updated.renewalYear)) throw Error('갱신 연도를 네 자리로 입력하세요.');
+      updated.renewalYear=updated.renewalMonth?updated.renewalYear:null;
+      updated.expiry=renewalSchedule(updated).expiry;
     }
     if(isSchedule){
       updated.endDate=updated.endDate||updated.date;
@@ -317,7 +334,7 @@ function edit(table,id='',defaults={}){
     }
     if(['leaves','renewals','letters','visits'].includes(table)&&!updated.member) throw Error('대상 멤버를 선택하세요.');
     if(table==='renewals'){
-      const expiry=state.members.find(member=>member.id===updated.member)?.expiry||'';
+      const expiry=renewalSchedule(state.members.find(member=>member.id===updated.member)||{}).expiry;
       updated.cycle=existing&&row.member===updated.member?(row.cycle??row.due??expiry):expiry;
       if(isRenewalApproved(updated.status)){
         const sameApproval=existing&&isRenewalApproved(row.status)&&row.member===updated.member;
@@ -333,6 +350,7 @@ function edit(table,id='',defaults={}){
     if(attachments) updated.attachments=attachments;
     await save([upsert(table,updated)]);
   });
+  if(table==='members') updateMemberExpiry(dialog.querySelector('form'));
 }
 function attendance(){
   const members=live(state.members).filter(row=>row.status==='활동');
@@ -361,9 +379,9 @@ function mpeList(){
   const targets=new Set(mpeTargets(state).map(row=>row.id));
   const members=live(state.members).filter(row=>targets.has(row.id)||live(state.mpe).some(m=>m.member===row.id));
   return members.filter(row=>row.name.toLowerCase().includes(query.toLowerCase())).map(row=>{
-    const evaluation=live(state.mpe).find(m=>m.member===row.id&&m.cycle===row.expiry);
+    const evaluation=currentMpe(state,row);
     const info=evaluation?scoreInfo(evaluation.criteria,evaluation.scores):null;
-    return rowCard(row.name,'만료일 '+(row.expiry||'미등록')+(info?' · '+info.answered+'/'+evaluation.criteria.length+' 항목':''),'mpe:'+row.id,statusPill(evaluation?.assessment)+statusPill(evaluation?.status||'미완료'));
+    return rowCard(row.name,'만료일 '+(renewalSchedule(row).expiry||'미등록')+(info?' · '+info.answered+'/'+evaluation.criteria.length+' 항목':''),'mpe:'+row.id,statusPill(evaluation?.assessment)+statusPill(evaluation?.status||'미완료'));
   }).join('')||empty('조건에 맞는 갱신 대상자가 없습니다.');
 }
 function mpeScreen(){
@@ -371,8 +389,8 @@ function mpeScreen(){
   const member=state.members.find(row=>row.id===mpeMember);
   if(!member) return empty('멤버를 찾을 수 없습니다.');
   const settings=config(state);
-  const existing=live(state.mpe).find(row=>row.member===member.id&&row.cycle===member.expiry);
-  const row=existing||{id:crypto.randomUUID(),member:member.id,cycle:member.expiry,date:localDate(),criteria:settings.criteria,confirmed:settings.confirmed,mpeMinimum:settings.mpeMinimum,scores:{}};
+  const existing=currentMpe(state,member);
+  const row=existing||{id:crypto.randomUUID(),member:member.id,cycle:renewalSchedule(member).expiry,date:localDate(),criteria:settings.criteria,confirmed:settings.confirmed,mpeMinimum:settings.mpeMinimum,scores:{}};
   const info=scoreInfo(row.criteria,row.scores);
   const minimum=row.mpeMinimum;
   return `${btn('← 평가 대상 목록','mpeback','text-button')}${heading(e(member.name),'갱신 MPE 평가')}${!row.confirmed?'<div class="notice">임시 평가표입니다. 실제 8개 항목과 배점을 확인한 뒤 설정에서 교체하세요.</div>':''}
@@ -651,7 +669,7 @@ async function action(value){
   if(type==='renewal-filter'){renewalFilter=a;return render();}
   if(type==='renewal'){
     const member=live(state.members).find(row=>row.id===a);
-    if(member) return edit('renewals',currentRenewal(state,member)?.id,{member:a,date:localDate(),cycle:member.expiry});
+    if(member) return edit('renewals',currentRenewal(state,member)?.id,{member:a,date:localDate(),cycle:renewalSchedule(member).expiry});
     return;
   }
   if(type==='mpe'){mpeMember=a;return render();}
@@ -769,6 +787,10 @@ document.addEventListener('input',event=>{
   if(targets) targets.innerHTML=renewalGroupList();
 });
 document.addEventListener('change',event=>{
+  if(event.target.matches('dialog [name=renewalMonth],dialog [name=renewalYear]')){
+    updateMemberExpiry(event.target.form);
+    return;
+  }
   if(event.target.matches('.schedule-period [name=date]')){
     const end=dialog.querySelector('.schedule-period [name=endDate]');
     const start=event.target.value;
@@ -781,7 +803,7 @@ document.addEventListener('change',event=>{
   const form=event.target.closest('#mpe-form');
   if(form&&event.target.name.startsWith('score-')){
     const member=state.members.find(row=>row.id===mpeMember);
-    const evaluation=live(state.mpe).find(row=>row.member===mpeMember&&row.cycle===member.expiry)||config(state);
+    const evaluation=currentMpe(state,member)||config(state);
     const criteria=evaluation.criteria;
     const info=scoreInfo(criteria,readScores(form,criteria));
     document.querySelector('#score').textContent=evaluation.mpeMinimum?'충족 '+info.total+' / '+criteria.length+' 항목':info.total+' / '+info.max+'점';
@@ -797,7 +819,7 @@ document.addEventListener('submit',async event=>{
   const complete=submitter?.value==='complete';
   const member=state.members.find(row=>row.id===form.dataset.member);
   const cfg=config(state);
-  const row=live(state.mpe).find(record=>record.member===member.id&&record.cycle===member.expiry)||{id:crypto.randomUUID(),member:member.id,cycle:member.expiry,criteria:cfg.criteria,confirmed:cfg.confirmed,mpeMinimum:cfg.mpeMinimum};
+  const row=currentMpe(state,member)||{id:crypto.randomUUID(),member:member.id,cycle:renewalSchedule(member).expiry,criteria:cfg.criteria,confirmed:cfg.confirmed,mpeMinimum:cfg.mpeMinimum};
   const scores=readScores(form,row.criteria);
   const error=form.querySelector('.form-error');
   if(complete&&scoreInfo(row.criteria,scores).answered!==8){error.textContent='완료하려면 8개 항목을 모두 평가하세요.';return;}

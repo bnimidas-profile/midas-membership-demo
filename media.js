@@ -1,4 +1,4 @@
-import {escape as e} from './forms.js?v=d40d9b42d6be';
+import {escape as e} from './forms.js?v=88757a5e7318';
 
 const maxImageLength=300000;
 const maxAttachments=10;

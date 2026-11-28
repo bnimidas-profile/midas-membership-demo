@@ -108,18 +108,44 @@ export function meetingParticipants(state){
 
 export const config = state => live(state.settings)[0] || {...seed().settings[0],next:'',criteria:[]};
 export const isRenewalApproved=status=>status==='승인'||status==='조건부 승인';
-export function currentRenewal(state,member){
-  const expiry=member.expiry;
-  if(!expiry) return undefined;
-  const expiryMonth=expiry.slice(0,7);
-  const earliest=shiftCalendarMonth(expiryMonth,-3)+'-01';
+export function renewalSchedule(member,today=localDate()){
+  const storedExpiry=member.expiry||'';
+  const monthNumber=/^(?:[1-9]|1[0-2])(?=월$)/.exec(member.renewalMonth)?.[0];
+  if(!monthNumber) return {month:storedExpiry.slice(0,7),expiry:storedExpiry};
+  const monthSuffix='-'+monthNumber.padStart(2,'0');
+  const storedMonth=storedExpiry.slice(0,7);
+  let year=/^[1-9][0-9]{3}$/.test(member.renewalYear)?String(member.renewalYear):'';
+  if(!year&&/^[1-9][0-9]{3}-(?:0[1-9]|1[0-2])$/.test(storedMonth)){
+    const following=shiftCalendarMonth(storedMonth,1);
+    year=(following.endsWith(monthSuffix)?following:storedMonth).slice(0,4);
+  }
+  if(!year){
+    year=today.slice(0,4);
+    if(year+monthSuffix<today.slice(0,7)) year=String(Number(year)+1);
+  }
+  const month=year+monthSuffix;
+  const end=new Date(month+'-01T00:00:00Z');
+  end.setUTCDate(0);
+  return {month,expiry:end.toISOString().slice(0,10)};
+}
+function matchesRenewalCycle(schedule,cycle){
+  const month=cycle?.slice(0,7);
+  return Boolean(month&&(month===schedule.month||month===schedule.expiry.slice(0,7)));
+}
+export function currentRenewal(state,member,today){
+  const schedule=renewalSchedule(member,today);
+  if(!schedule.month) return undefined;
+  const earliest=shiftCalendarMonth(schedule.month,-3)+'-01';
   return live(state.renewals).filter(row=>{
     if(row.member!==member.id) return false;
     const cycleDate=row.cycle??row.due;
-    if(cycleDate) return cycleDate.slice(0,7)===expiryMonth;
-    return row.date>=earliest;
+    return cycleDate?matchesRenewalCycle(schedule,cycleDate):row.date>=earliest;
   }).sort((a,b)=>(b.approvedOn||b.date||'').localeCompare(a.approvedOn||a.date||'','en')||
     (b.updatedAt||'').localeCompare(a.updatedAt||'','en'))[0];
+}
+export function currentMpe(state,member){
+  const schedule=renewalSchedule(member);
+  return live(state.mpe).find(row=>row.member===member.id&&matchesRenewalCycle(schedule,row.cycle));
 }
 export function renewalGroups(state,today=localDate(),{includeApproved=false}={}){
   const month=today.slice(0,7);
@@ -127,14 +153,15 @@ export function renewalGroups(state,today=localDate(),{includeApproved=false}={}
     shiftCalendarMonth(month,offset),['current','one','two','three'][index],
   ]));
   const groups={current:[],one:[],two:[],three:[],expired:[]};
-  const members=live(state.members).filter(row=>row.status==='활동'&&row.expiry)
-    .sort((a,b)=>a.expiry.localeCompare(b.expiry,'en')||a.name.localeCompare(b.name,'ko'));
-  for(const member of members){
-    const decision=currentRenewal(state,member);
+  const members=live(state.members).filter(row=>row.status==='활동')
+    .map(member=>({member,schedule:renewalSchedule(member,today)}))
+    .filter(({schedule})=>schedule.month)
+    .sort((a,b)=>a.schedule.expiry.localeCompare(b.schedule.expiry,'en')||a.member.name.localeCompare(b.member.name,'ko'));
+  for(const {member,schedule} of members){
+    const decision=currentRenewal(state,member,today);
     const approvedMonth=(decision?.approvedOn||decision?.date||'').slice(0,7);
     if(!includeApproved&&isRenewalApproved(decision?.status)&&approvedMonth&&approvedMonth<month) continue;
-    const expiryMonth=member.expiry.slice(0,7);
-    const band=expiryMonth<month?'expired':bands.get(expiryMonth);
+    const band=schedule.month<month?'expired':bands.get(schedule.month);
     if(band) groups[band].push(member);
   }
   return groups;

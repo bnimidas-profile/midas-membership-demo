@@ -1,4 +1,4 @@
-import {applyChanges,demoChapterRole,seed} from './model.js?v=d40d9b42d6be';
+import {applyChanges,demoChapterRole,seed} from './model.js?v=88757a5e7318';
 const key='midas-fictional-v1';
 export async function openStore() {
   const config=await fetch('./deployment.json',{cache:'no-store'}).then(response=>{if(!response.ok) throw Error('배포 설정을 읽을 수 없습니다.'); return response.json();});
@@ -31,7 +31,7 @@ export async function openStore() {
     }};
   }
   if(!config.supabaseUrl||!config.publishableKey) throw Error('공동 사용 환경 설정이 필요합니다.');
-  const {createClient}=await import('./supabase-client.js?v=d40d9b42d6be');
+  const {createClient}=await import('./supabase-client.js?v=88757a5e7318');
   const client=createClient(config.supabaseUrl,config.publishableKey);
   const login=async()=>{
     const {error}=await client.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.href.split('#')[0]}});
