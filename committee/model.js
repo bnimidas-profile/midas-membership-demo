@@ -54,6 +54,14 @@ export const seed = () => {
   };
 };
 export const live = rows => (rows || []).filter(row=>!row.deleted);
+export const ballotChoices=['승인','거절'];
+export const sampleVote={
+  id:'sample-committee-approval',name:'[샘플] 다음 정기모임 안건 연습',status:'진행 중',notes:'연습용 안건입니다.',
+};
+export function visibleVotes(state){
+  const votes=live(state.votes).filter(row=>!(row.id==='sheet-vote-7'&&row.sourceWorkbook&&!Object.hasOwn(row,'deleted')));
+  return state.votes.some(row=>row.id===sampleVote.id)?votes:[sampleVote,...votes];
+}
 export function orderedMembers(state){
   const number=row=>Number(row.listeningNumber)>0?Number(row.listeningNumber):Infinity;
   return live(state.members).sort((a,b)=>(number(a)-number(b))||

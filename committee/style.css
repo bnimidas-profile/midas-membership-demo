@@ -29,7 +29,7 @@ dialog{position:fixed;width:min(calc(100% - 22px),580px);max-height:calc(100dvh 
 .row-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .4rem}
 
 .ballot-choices{display:flex;flex-wrap:wrap;gap:.5rem}
-.ballot-results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem;margin:1rem 0}
+.ballot-results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem;margin:1rem 0}
 .ballot-results>span{border:1px solid var(--border,#e3e3e7);border-radius:.75rem;padding:.65rem;text-align:center}
 .ballot-results strong{display:block;margin-top:.25rem}
 

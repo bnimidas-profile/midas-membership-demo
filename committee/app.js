@@ -1,7 +1,7 @@
-import {chapterRoster,isWithdrawn,calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,currentMpe,renewalSchedule,isRenewalApproved,renewalGroups,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=cfbebca390a2';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=cfbebca390a2';
-import {openStore} from './storage.js?v=cfbebca390a2';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=cfbebca390a2';
+import {chapterRoster,ballotChoices,visibleVotes,isWithdrawn,calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,currentMpe,renewalSchedule,isRenewalApproved,renewalGroups,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=ccdca8ff78fa';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=ccdca8ff78fa';
+import {openStore} from './storage.js?v=ccdca8ff78fa';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=ccdca8ff78fa';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
@@ -115,7 +115,7 @@ function allMenus(){
   return heading('전체 메뉴')+`<div class="toolbar">${btn('챕터 일정표','go:schedule')}</div>`+menus.map(([group,items])=>section(group,`<div class="menu-grid">${[...items].sort((a,b)=>visible().indexOf(a[0])-visible().indexOf(b[0])).filter(([id])=>visible().includes(id)||id==='settings'&&admin()).map(([id,label,symbol])=>btn(icon(symbol)+e(label),'go:'+id,'menu-tile')).join('')}</div>`)).join('');
 }
 function listContent(table){
-  const records=table==='members'?chapterRoster(state):live(state[table]).filter(row=>table!=='other'||row.kind!=='chapter-schedule');
+  const records=table==='members'?chapterRoster(state):table==='votes'?visibleVotes(state):live(state[table]).filter(row=>table!=='other'||row.kind!=='chapter-schedule');
   const candidates=table==='renewals'&&renewalFilter==='conditional'?records.filter(row=>row.status==='조건부 승인'):records;
   const filtered=candidates.filter(row=>[table==='visits'?'':row.name,nameOf(row.member),row.displayNumber,row.company,row.status,row.type,row.date,row.notes].join(' ').toLowerCase().includes(query.toLowerCase()));
   return filtered.map(row=>{
@@ -617,27 +617,31 @@ function editMemberBadges(id){
   });
 }
 async function openBallot(id){
-  const row=live(state.votes).find(vote=>vote.id===id);
+  const row=visibleVotes(state).find(vote=>vote.id===id);
   if(!row) return;
   const details=[row.date,row.notes].filter(Boolean).map(value=>`<p>${e(value)}</p>`).join('');
-  const management=btn('안건 수정','edit:votes:'+id);
-  const legacy=[['찬성',row.yes],['반대',row.no],['기권',row.abstain]];
+  const management=live(state.votes).some(vote=>vote.id===id)?btn('안건 수정','edit:votes:'+id):'';
+  const legacy=[['승인',row.yes],['거절',row.no],['기권',row.abstain]];
   const previous=legacy.some(([,count])=>Number(count)>0)
     ?`<p>기존 수기 결과 · ${legacy.map(([label,count])=>label+' '+e(count||0)+'표').join(' · ')}</p>`:'';
   modal(e(row.name),details+previous+`<div id="ballot-panel" aria-live="polite">투표를 불러오는 중…</div>`+management);
   const panel=dialog.querySelector('#ballot-panel');
   const draw=result=>{
-    const totals=[['찬성',result.yes],['반대',result.no],['기권',result.abstain]];
+    const totals=ballotChoices.map((label,index)=>[label,index===0?result.yes:result.no]);
     const results=totals.map(([label,count])=>`<span>${label}<strong>${e(count)}표</strong></span>`).join('');
-    const mine=result.choice?`<p>내 투표 · <strong>${e(result.choice)}</strong></p>`:'';
+    const choice=({'찬성':'승인','반대':'거절'})[result.choice]||result.choice;
+    const mine=choice?`<p>내 투표 · <strong>${e(choice)}</strong></p>`:'';
+    const practice=result.localPractice?'<p class="notice">연습 투표는 현재 기기에만 저장됩니다.</p>':'';
+    const abstained=result.legacyAbstain||result.abstain;
+    const historical=abstained?`<p>이전 기권 ${e(abstained)}표</p>`:'';
     const form=result.status==='진행 중'&&result.total<5&&!result.choice?`<fieldset class="ballot-choices"><legend>내 선택</legend>${totals.map(([label])=>`<label><input type="radio" name="ballot-choice" value="${label}"> ${label}</label>`).join('')}${btn('투표 제출','ballot-submit:'+id,'primary')}</fieldset>`:'';
-    panel.innerHTML=`<p>참여 ${e(result.total)} / 5명 · ${e(result.status)}</p><div class="ballot-results">${results}</div>${mine}${form}`;
+    panel.innerHTML=`<p>참여 ${e(result.total)} / 5명 · ${e(result.status)}</p><div class="ballot-results">${results}</div>${historical}${mine}${practice}${form}`;
   };
   panel.addEventListener('click',async event=>{
     const button=event.target.closest('[data-action]');
     if(button?.dataset.action!=='ballot-submit:'+id||button.disabled) return;
     const selected=panel.querySelector('input:checked');
-    if(!selected){notify('찬성, 반대 또는 기권을 선택하세요.');return;}
+    if(!selected){notify('승인 또는 거절을 선택하세요.');return;}
     button.disabled=true;
     try {
       const result=await store.ballot(id,selected.value);
