@@ -1,7 +1,7 @@
-import {calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=18c96c1688bd';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=18c96c1688bd';
-import {openStore} from './storage.js?v=18c96c1688bd';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=18c96c1688bd';
+import {calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=b13f9c92b8c6';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=b13f9c92b8c6';
+import {openStore} from './storage.js?v=b13f9c92b8c6';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=b13f9c92b8c6';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
