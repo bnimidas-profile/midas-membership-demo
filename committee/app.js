@@ -1,7 +1,7 @@
-import {chapterRoster,isWithdrawn,calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,currentMpe,renewalSchedule,isRenewalApproved,renewalGroups,renewalTargets,mpeTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=88757a5e7318';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=88757a5e7318';
-import {openStore} from './storage.js?v=88757a5e7318';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=88757a5e7318';
+import {chapterRoster,isWithdrawn,calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,currentRenewal,currentMpe,renewalSchedule,isRenewalApproved,renewalGroups,renewalTargets,mpeTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=8f88354027ff';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=8f88354027ff';
+import {openStore} from './storage.js?v=8f88354027ff';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=8f88354027ff';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
@@ -53,9 +53,9 @@ function modal(title,body,onSubmit,submit='저장'){
   const period=dialog.querySelector('.schedule-period');
   if(period) period.querySelector('[name=endDate]').min=period.querySelector('[name=date]').value;
 }
-async function save(changes){
+async function save(changes,{refresh=true}={}){
   state=await store.save(changes);
-  render();
+  if(refresh) render();
   notify('저장했습니다.');
 }
 const upsert=(table,row)=>({table,row});
@@ -132,7 +132,9 @@ function listContent(table){
       return `<div class="member-row">${details}${settings}</div>`;
     }
     const title=table==='visits'?(nameOf(row.member)||row.type):row.name||nameOf(row.member);
-    const action=table==='votes'?'ballot:'+row.id:'edit:'+table+':'+row.id;
+    const renewalMember=table==='renewals'&&live(state.members).find(member=>member.id===row.member);
+    const action=table==='votes'?'ballot:'+row.id:renewalMember&&currentRenewal(state,renewalMember)?.id===row.id
+      ?'renewal:'+renewalMember.id:'edit:'+table+':'+row.id;
     const detail=table==='votes'&&row.status==='진행 중'?'개인 투표하기':row.date||row.due;
     return rowCard(title||'기록',[row.type,detail,row.company||row.owner].filter(Boolean).join(' · '),action,statusPill(table==='renewals'?renewalStatus(row.status):row.status));
   }).join('')||empty('표시할 기록이 없습니다.');
@@ -333,14 +335,7 @@ function edit(table,id='',defaults={}){
       if(updated.type==='대리인'&&updated.status==='참석'&&live(state.visitors).some(v=>v.id!==row.id&&v.type==='대리인'&&v.status==='참석'&&v.date===updated.date&&v.member===updated.member)) throw Error('이 멤버의 대리 참석이 이미 등록되어 있습니다.');
     }
     if(['leaves','renewals','letters','visits'].includes(table)&&!updated.member) throw Error('대상 멤버를 선택하세요.');
-    if(table==='renewals'){
-      const expiry=renewalSchedule(state.members.find(member=>member.id===updated.member)||{}).expiry;
-      updated.cycle=existing&&row.member===updated.member?(row.cycle??row.due??expiry):expiry;
-      if(isRenewalApproved(updated.status)){
-        const sameApproval=existing&&isRenewalApproved(row.status)&&row.member===updated.member;
-        updated.approvedOn=sameApproval?(row.approvedOn||row.date||localDate()):localDate();
-      } else updated.approvedOn='';
-    }
+    if(table==='renewals') Object.assign(updated,renewalDecision(row,updated));
     if(table==='leaves'&&updated.end<updated.start) throw Error('종료일은 시작일 이후여야 합니다.');
     if(table==='attendance'){
       updated.early=updated.status==='지각'&&updated.early;
@@ -375,28 +370,60 @@ function stats(member,months=1){
   const rows=dates.map(date=>({date,...attendanceFor(state,date,member)}));
   modal(e(nameOf(member))+' 출결 이력',`<div class="tabs">${[1,3,6,12].map(n=>btn(n===12?'1년':n+'개월','stats:'+member+':'+n,n===months?'selected':'secondary')).join('')}</div><div class="counts">${statuses.map(status=>`<span>${status} <strong>${rows.filter(row=>row.status===status).length}</strong></span>`).join('')}</div>`+(rows.map(row=>`<p class="stat-line"><strong>${e(row.date)}</strong> ${e(row.status)} ${row.early&&row.status==='지각'?'· 조퇴':''} ${e(row.proxy||'')}</p>`).join('')||empty('기간 내 회의 기록이 없습니다.')));
 }
+function renewalDecision(previous,updated){
+  const member=live(state.members).find(row=>row.id===updated.member);
+  const expiry=renewalSchedule(member||{}).expiry;
+  const sameMember=previous.member===updated.member;
+  const cycle=sameMember?(previous.cycle??previous.due??expiry):expiry;
+  const previouslyApproved=sameMember&&isRenewalApproved(previous.status);
+  const approvedOn=isRenewalApproved(updated.status)
+    ?(previouslyApproved?(previous.approvedOn||previous.date||localDate()):localDate()):'';
+  return {cycle,approvedOn};
+}
+function renewalRecord(member){
+  return currentRenewal(state,member)||{id:crypto.randomUUID(),member:member.id,date:localDate()};
+}
+const renewalDetailsFields=fields.renewals.filter(field=>field.key!=='member');
+function renewalDetails(member){
+  const row=renewalRecord(member);
+  const remove=admin()&&live(state.renewals).some(record=>record.id===row.id)
+    ?btn('휴지통으로 이동','delete:renewals:'+row.id,'danger'):'';
+  return `<form id="renewal-details-form" data-member="${e(member.id)}" class="panel form-panel">
+    ${formFields(renewalDetailsFields,row,state)}${attachmentFields('renewals',row,store.demo)}
+    <p class="form-error" role="alert"></p>
+    <div class="toolbar"><button class="primary" type="submit">갱신 정보 저장</button>${remove}</div>
+  </form>`;
+}
 function mpeList(){
-  const targets=new Set(mpeTargets(state).map(row=>row.id));
-  const members=live(state.members).filter(row=>targets.has(row.id)||live(state.mpe).some(m=>m.member===row.id));
+  const evaluated=new Set(live(state.mpe).map(row=>row.member));
+  const members=live(state.members).filter(row=>!isWithdrawn(row.status)||evaluated.has(row.id));
   return members.filter(row=>row.name.toLowerCase().includes(query.toLowerCase())).map(row=>{
     const evaluation=currentMpe(state,row);
     const info=evaluation?scoreInfo(evaluation.criteria,evaluation.scores):null;
     return rowCard(row.name,'만료일 '+(renewalSchedule(row).expiry||'미등록')+(info?' · '+info.answered+'/'+evaluation.criteria.length+' 항목':''),'mpe:'+row.id,statusPill(evaluation?.assessment)+statusPill(evaluation?.status||'미완료'));
-  }).join('')||empty('조건에 맞는 갱신 대상자가 없습니다.');
+  }).join('')||empty('표시할 회원이 없습니다.');
 }
 function mpeScreen(){
-  if(!mpeMember) return heading('갱신심사 및 MPE','갱신 대상 멤버의 평가와 진행 상태를 확인합니다.')+`<div class="toolbar">${search('멤버 이름 검색')}</div><div id="results">${mpeList()}</div>`;
-  const member=state.members.find(row=>row.id===mpeMember);
+  if(!mpeMember) return heading('갱신심사 및 MPE','멤버의 평가와 진행 상태를 확인합니다.')+`<div class="toolbar">${search('멤버 이름 검색')}</div><div id="results">${mpeList()}</div>`;
+  const member=live(state.members).find(row=>row.id===mpeMember);
   if(!member) return empty('멤버를 찾을 수 없습니다.');
+  const renewalView=route()==='renewals';
+  const expiry=renewalSchedule(member).expiry;
+  return btn(renewalView?'← 갱신 대상 목록':'← 평가 대상 목록','mpeback','text-button')+
+    heading(e(member.name),expiry?'갱신 만료일 '+e(expiry):'')+
+    section('MPE 평가',`<div id="mpe-editor">${mpeForm(member)}</div>`)+
+    (renewalView?section('갱신 정보',`<div id="renewal-editor">${renewalDetails(member)}</div>`):'');
+}
+function mpeForm(member){
   const settings=config(state);
   const existing=currentMpe(state,member);
   const row=existing||{id:crypto.randomUUID(),member:member.id,cycle:renewalSchedule(member).expiry,date:localDate(),criteria:settings.criteria,confirmed:settings.confirmed,mpeMinimum:settings.mpeMinimum,scores:{}};
   const info=scoreInfo(row.criteria,row.scores);
   const minimum=row.mpeMinimum;
-  return `${btn('← 평가 대상 목록','mpeback','text-button')}${heading(e(member.name),'갱신 MPE 평가')}${!row.confirmed?'<div class="notice">임시 평가표입니다. 실제 8개 항목과 배점을 확인한 뒤 설정에서 교체하세요.</div>':''}
+  return `${!row.confirmed?'<div class="notice">임시 평가표입니다. 실제 8개 항목과 배점을 확인한 뒤 설정에서 교체하세요.</div>':''}
     <form id="mpe-form" data-member="${e(member.id)}"><div class="panel eval-progress"><div><strong id="score">${minimum?'충족 '+info.total+' / '+row.criteria.length+' 항목':info.total+' / '+info.max+'점'}</strong><span id="progress-label">${info.answered} / ${row.criteria.length} 항목</span></div><progress id="progress" value="${info.answered}" max="${row.criteria.length||1}"></progress>${minimum?`<p>스프레드시트 기준 · ${minimum}개 이상 충족</p>`:''}</div>
-    ${row.criteria.map((item,i)=>`<fieldset class="panel criterion" aria-labelledby="criterion-${i}"><h3 class="criterion-title" id="criterion-${i}">${e(item.name)}</h3><div class="score-options">${item.scores.map(score=>`<label><input type="radio" name="score-${i}" value="${e(score)}" ${row.scores[i]===score?'checked':''}><span class="${minimum?(score===1?'green':'red'):''}">${minimum?(score===1?'충족':'미충족'):e(score)}</span></label>`).join('')}</div></fieldset>`).join('')}
-    <div class="panel form-panel"><fieldset class="assessment" aria-labelledby="assessment-title"><h3 class="criterion-title" id="assessment-title">MPE 종합 판정</h3><div class="score-options">${['충족','보완 필요'].map(value=>`<label><input type="radio" name="assessment" value="${value}" ${row.assessment===value?'checked':''}><span class="${statusColors[value]}">${value}</span></label>`).join('')}</div></fieldset>${formFields(fields.mpe,row,state)}${attachmentFields('mpe',row,store.demo)}</div><div class="toolbar">${btn('출결 이력','stats:'+member.id)}${btn('평가 이력','mpehistory:'+member.id)}<button name="mode" value="draft" class="secondary">임시 저장</button><button name="mode" value="complete" class="primary">완료 처리</button></div><p class="form-error" role="alert"></p></form>`;
+    ${row.criteria.map((item,i)=>`<fieldset class="panel criterion" aria-labelledby="criterion-${i}"><h3 class="criterion-title" id="criterion-${i}">${e(item.name)}</h3><div class="criterion-controls"><div class="score-options">${item.scores.map(score=>`<label><input type="radio" name="score-${i}" value="${e(score)}" ${row.scores[i]===score?'checked':''}><span class="${minimum?(score===1?'green':'red'):''}">${minimum?(score===1?'충족':'미충족'):e(score)}</span></label>`).join('')}</div><label class="criterion-measure"><span>달성 수치</span><input type="number" name="achieved-${i}" min="0" step="any" inputmode="decimal" value="${e(row.achieved?.[i]??'')}" placeholder="점수·횟수"></label></div></fieldset>`).join('')}
+    <div class="panel form-panel"><fieldset class="assessment" aria-labelledby="assessment-title"><h3 class="criterion-title" id="assessment-title">MPE 종합 판정</h3><div class="score-options">${['충족','보완 필요'].map(value=>`<label><input type="radio" name="assessment" value="${value}" ${row.assessment===value?'checked':''}><span class="${statusColors[value]}">${value}</span></label>`).join('')}</div></fieldset>${formFields(fields.mpe,row,state)}${attachmentFields('mpe',row,store.demo)}</div><div class="toolbar">${btn('출결 이력','stats:'+member.id)}${btn('평가 이력','mpehistory:'+member.id)}<button name="mode" value="draft" class="secondary">임시 저장</button><button name="mode" value="complete" class="primary">완료 처리</button>${row.status==='완료'?statusPill('완료'):''}</div><p class="form-error" role="alert"></p></form>`;
 }
 function readScores(form,criteria){
   const data=new FormData(form);
@@ -517,7 +544,7 @@ function updateMeetingDate(){
   if(!meetingPinned) meeting=date;
   const view=route();
   if((meetingChanged&&['home','attendance'].includes(view))||
-     (monthChanged&&(['home','renewals'].includes(view)||view==='mpe'&&!mpeMember))) render();
+     (monthChanged&&(view==='home'||['renewals','mpe'].includes(view)&&!mpeMember))) render();
 }
 function render(){
   if(!state) return;
@@ -529,7 +556,7 @@ function render(){
   else if(id==='attendance') body=attendance();
   else if(id==='schedule') body=schedule();
   else if(id==='history') body=history();
-  else if(id==='mpe') body=mpeScreen();
+  else if(id==='mpe'||id==='renewals'&&mpeMember) body=mpeScreen();
   else if(id==='settings') body=settings();
   else if(id==='alerts') body=heading('긴급 확인 사항')+(urgent().map(row=>rowCard(row.name,row.due||row.date||'','edit:'+(state.issues.includes(row)?'issues':'board')+':'+row.id,statusPill(row.status))).join('')||empty('긴급 확인 사항이 없습니다.'));
   else body=generic(id);
@@ -667,12 +694,13 @@ async function action(value){
   }
   if(type==='edit-schedule') return edit('other',a,{kind:'chapter-schedule',date:localDate()});
   if(type==='renewal-filter'){renewalFilter=a;return render();}
-  if(type==='renewal'){
-    const member=live(state.members).find(row=>row.id===a);
-    if(member) return edit('renewals',currentRenewal(state,member)?.id,{member:a,date:localDate(),cycle:renewalSchedule(member).expiry});
+  if(type==='renewal'||type==='mpe'){
+    if(!live(state.members).some(member=>member.id===a)) return;
+    mpeMember=a;
+    render();
+    window.scrollTo(0,0);
     return;
   }
-  if(type==='mpe'){mpeMember=a;return render();}
   if(type==='mpeback'){mpeMember='';return render();}
   if(type==='history'){historyMode=a;return go('history');}
   if(type==='stats') return stats(a,Number(b)||1);
@@ -813,6 +841,24 @@ document.addEventListener('change',event=>{
 });
 document.addEventListener('submit',async event=>{
   const form=event.target;
+  if(form.id==='renewal-details-form'){
+    event.preventDefault();
+    const member=live(state.members).find(row=>row.id===form.dataset.member);
+    if(!member) return;
+    const row=renewalRecord(member);
+    const updated={...row,...readFields(form,renewalDetailsFields)};
+    const submit=form.querySelector('[type=submit]');
+    submit.disabled=true;
+    try {
+      const attachments=await readAttachments(form,'renewals',row.attachments,store.demo);
+      await save([upsert('renewals',{...updated,...renewalDecision(row,updated),attachments})],{refresh:false});
+      if(form.isConnected) form.parentElement.innerHTML=renewalDetails(member);
+    } catch(error){
+      form.querySelector('.form-error').textContent=error.message;
+      submit.disabled=false;
+    }
+    return;
+  }
   if(form.id!=='mpe-form') return;
   event.preventDefault();
   const submitter=event.submitter;
@@ -823,14 +869,24 @@ document.addEventListener('submit',async event=>{
   const scores=readScores(form,row.criteria);
   const error=form.querySelector('.form-error');
   if(complete&&scoreInfo(row.criteria,scores).answered!==8){error.textContent='완료하려면 8개 항목을 모두 평가하세요.';return;}
-  if(complete&&!form.elements.owner.value.trim()){error.textContent='평가 담당 위원을 입력하세요.';return;}
-  const assessment=new FormData(form).get('assessment')||'';
+  const data=new FormData(form);
+  const assessment=data.get('assessment')||'';
+  const achieved=Object.fromEntries(row.criteria.flatMap((_,index)=>{
+    const value=data.get('achieved-'+index);
+    return value===''?[]:[[index,Number(value)]];
+  }));
+  if(Object.values(achieved).some(value=>!Number.isFinite(value)||value<0)){
+    error.textContent='달성 수치는 0 이상의 숫자로 입력하세요.';
+    return;
+  }
   if(complete&&!assessment){error.textContent='MPE 종합 판정을 선택하세요.';return;}
   const buttons=[...form.querySelectorAll('button[name=mode]')];
   buttons.forEach(button=>button.disabled=true);
   try {
     const attachments=await readAttachments(form,'mpe',row.attachments,store.demo);
-    await save([upsert('mpe',{...row,...readFields(form,fields.mpe),scores,assessment,attachments,status:complete?'완료':'임시 저장'})]);
+    const owner=row.owner||(complete?(store.userId||'가상 위원'):'');
+    await save([upsert('mpe',{...row,...readFields(form,fields.mpe),scores,achieved,owner,assessment,attachments,status:complete?'완료':'임시 저장'})],{refresh:false});
+    if(form.isConnected) form.parentElement.innerHTML=mpeForm(member);
   }
   catch(failure){error.textContent=failure.message;buttons.forEach(button=>button.disabled=false);}
 });

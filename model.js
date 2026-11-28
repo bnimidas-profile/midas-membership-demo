@@ -145,7 +145,8 @@ export function currentRenewal(state,member,today){
 }
 export function currentMpe(state,member){
   const schedule=renewalSchedule(member);
-  return live(state.mpe).find(row=>row.member===member.id&&matchesRenewalCycle(schedule,row.cycle));
+  return live(state.mpe).find(row=>row.member===member.id&&
+    (schedule.month?matchesRenewalCycle(schedule,row.cycle):!row.cycle));
 }
 export function renewalGroups(state,today=localDate(),{includeApproved=false}={}){
   const month=today.slice(0,7);

@@ -1,4 +1,4 @@
-import {visitorTypes,statuses,live} from './model.js?v=88757a5e7318';
+import {visitorTypes,statuses,live} from './model.js?v=8f88354027ff';
 const f=(key,label,type='text',options)=>({key,label,type,options});
 const name=(label='제목')=>f('name',label);
 const date=(label='날짜')=>f('date',label,'date');
@@ -16,12 +16,12 @@ export const fields={
   leaves:[member(),f('applied','신청일','date'),f('start','시작일','date'),f('end','종료일','date'),select('status','승인 여부','검토 중','승인','반려'),notes()],
   guests:[name('성명'),select('type','구분','디렉터','앰버서더')],
   admissions:[name('신청자'),date('심사 날짜'),f('company','회사명'),f('specialty','전문분야'),select('status','심사 상태','검토 중','승인','보류','반려'),f('owner','담당 위원'),notes('심사 의견')],
-  renewals:[member(),date('결정 날짜'),select('status','갱신 상태','검토 중','승인','조건부 승인','보류','반려','미갱신'),f('owner','담당 위원'),notes('승인 의견 및 조건')],
+  renewals:[member(),date('결정 날짜'),select('status','갱신 상태','검토 중','승인','조건부 승인','보류','반려','미갱신'),notes('승인 의견 및 조건')],
   votes:[name('투표 안건'),date('투표 날짜'),select('status','진행 상태','예정','진행 중','완료'),notes('투표 설명 및 비고')],
   letters:[name('제목'),member(),date('발송 예정일'),select('status','진행 상태','작성 중','검토 중','발송 완료'),notes('레터 내용')],
   issues:[name('이슈 제목'),date('등록일'),member('관련 멤버'),select('status','진행 상태','접수','검토 중','해결'),select('priority','우선순위','일반','긴급'),f('owner','담당 위원'),notes('내용 및 조치')],
   visits:[date('확인 날짜'),member('참여 멤버'),select('type','구분','자방','개방'),select('status','상태','예정','완료','취소'),notes()],
-  mpe:[date('평가 날짜'),f('owner','평가 담당 위원'),select('decision','갱신 승인 여부','미결정','승인','조건부 승인','보류','반려','미갱신'),notes('인터뷰 내용'),f('opinion','평가 의견 및 특이사항','textarea')],
+  mpe:[date('평가 날짜'),select('decision','갱신 승인 여부','미결정','승인','조건부 승인','보류','반려','미갱신'),notes('인터뷰 내용'),f('opinion','평가 의견 및 특이사항','textarea')],
 };
 export const escape = value => String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 export function formFields(items,row,state){
