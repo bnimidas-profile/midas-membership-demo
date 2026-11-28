@@ -147,12 +147,20 @@ export function reportText({title,date,total,rows,guests}){
   ].join('\n');
 }
 export const reportFor=(state,date)=>reportText(attendanceReport(state,date));
+function importMemberMatches(state,id,name,aliases,listeningNumber){
+  const available=live(state.members);
+  const byId=available.find(row=>row.id===id);
+  if(byId) return [byId];
+  const normalize=value=>String(value||'').normalize('NFC').replace(/\s+/g,'');
+  const names=new Set([name,...(aliases||[])].map(normalize).filter(Boolean));
+  const matches=available.filter(row=>names.has(normalize(row.name)));
+  const numbered=listeningNumber?matches.filter(row=>Number(row.listeningNumber)===Number(listeningNumber)):[];
+  return numbered.length?numbered:matches;
+}
 export function workbookChanges(state,changes,criteria){
-  const normalize=name=>String(name||'').normalize('NFC').replace(/\s+/g,'');
   const idMap=new Map();
   for(const {row} of changes.filter(change=>change.table==='members')){
-    const names=new Set([row.name,...(row.sourceAliases||[])].map(normalize));
-    const matches=live(state.members).filter(member=>member.id===row.id||names.has(normalize(member.name)));
+    const matches=importMemberMatches(state,row.id,row.name,row.sourceAliases,row.listeningNumber);
     if(matches.length>1) throw Error('같은 회원으로 보이는 기존 기록이 여러 개 있습니다.');
     idMap.set(row.id,matches[0]?.id||row.id);
   }
@@ -180,11 +188,9 @@ export function workbookChanges(state,changes,criteria){
 }
 export function memberPatchChanges(state,patches){
   if(!Array.isArray(patches)||!patches.length||patches.length>100) throw Error('멤버 수정 파일 형식이 올바르지 않습니다.');
-  const normalize=value=>String(value||'').normalize('NFC').replace(/\s+/g,'');
   const seen=new Set();
   return patches.map(patch=>{
-    const names=new Set([patch.name,...(patch.aliases||[])].map(normalize).filter(Boolean));
-    const matches=live(state.members).filter(row=>row.id===patch.id||names.has(normalize(row.name)));
+    const matches=importMemberMatches(state,patch.id,patch.name,patch.aliases,patch.listeningNumber);
     if(matches.length!==1||seen.has(matches[0]?.id)) throw Error('등록된 멤버와 수정 명단을 연결할 수 없습니다. 현재 명단의 이름과 중복을 확인하세요.');
     const [row]=matches;
     seen.add(row.id);
