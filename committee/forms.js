@@ -1,4 +1,4 @@
-import {visitorTypes,statuses,live} from './model.js?v=d8fb55ee0323';
+import {visitorTypes,statuses,live} from './model.js?v=18c96c1688bd';
 const f=(key,label,type='text',options)=>({key,label,type,options});
 const name=(label='제목')=>f('name',label);
 const date=(label='날짜')=>f('date',label,'date');

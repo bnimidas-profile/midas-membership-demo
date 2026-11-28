@@ -1,7 +1,7 @@
-import {calendarDays,shiftCalendarMonth,memberPatchChanges,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=d8fb55ee0323';
-import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=d8fb55ee0323';
-import {openStore} from './storage.js?v=d8fb55ee0323';
-import {attachmentFields,readAttachments,reportPng} from './media.js?v=d8fb55ee0323';
+import {calendarDays,shiftCalendarMonth,memberPatchChanges,memberPatchTargets,orderedMembers,upcomingMeeting,upcomingMeetingDetails,weeklyMeetingTime,attendanceReport,attendanceFor,attendanceTotals,config,entries,live,localDate,meetingParticipants,menus,nextMeeting,renewalTargets,reportText,scoreInfo,statuses,workbookChanges} from './model.js?v=18c96c1688bd';
+import {escape as e,fields,formFields,readFields,scheduleFields} from './forms.js?v=18c96c1688bd';
+import {openStore} from './storage.js?v=18c96c1688bd';
+import {attachmentFields,readAttachments,reportPng} from './media.js?v=18c96c1688bd';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
@@ -42,10 +42,11 @@ function modal(title,body,onSubmit,submit='저장'){
   dialog.innerHTML=`<form><div class="dialog-head"><h2>${title}</h2>${btn('×','close','icon-button')}</div><div class="dialog-body">${body}</div><div class="form-error" role="alert"></div><footer>${btn('닫기','close')} ${onSubmit?`<button class="primary" type="submit">${submit}</button>`:''}</footer></form>`;
   if(onSubmit) dialog.querySelector('form').onsubmit=async event=>{
     event.preventDefault();
-    const button=event.currentTarget.querySelector('[type=submit]');
+    const form=event.currentTarget;
+    const button=form.querySelector('[type=submit]');
     button.disabled=true;
-    try {await onSubmit(event.currentTarget);closeDialog();}
-    catch(error){dialog.querySelector('.form-error').textContent=error.message;button.disabled=false;}
+    try {await onSubmit(form);if(form.isConnected) closeDialog();}
+    catch(error){form.querySelector('.form-error').textContent=error.message;button.disabled=false;}
   };
   dialog.showModal();
   dialog.querySelectorAll('textarea[name="agenda-detail"]').forEach(resizeAgenda);
@@ -481,6 +482,22 @@ function showReport(){
   modal('주간회의 출결 보고',`<label class="date-field">주간회의 날짜 <input id="report-date" type="date" value="${e(date)}"></label><img class="report-image" id="report-image" hidden><div class="toolbar report-actions">${btn('이미지 다운로드','download-report','primary')}${btn('이미지 공유','share-report')}</div>`);
   return updateReport(date);
 }
+function reviewMemberPatches(patches,targets){
+  const members=orderedMembers(state);
+  const rows=patches.map((patch,index)=>`<label class="field">
+    <span>${e([patch.listeningNumber?patch.listeningNumber+'번':'',patch.name,patch.chapterRole].filter(Boolean).join(' · '))}으로 바꿀 기존 회원</span>
+    <select name="member-patch-${index}" required>
+      <option value="">기존 회원 선택</option>
+      ${members.map(member=>`<option value="${e(member.id)}" ${targets[index]===member.id?'selected':''}>${e([member.listeningNumber?member.listeningNumber+'번':'',member.name,member.company,member.chapterRole].filter(Boolean).join(' · '))}</option>`).join('')}
+    </select>
+  </label>`).join('');
+  modal('수정할 회원 확인','<p>번호와 회사명을 보고 각 항목이 바꿀 기존 회원을 선택하세요. 선택을 확인한 뒤에만 저장합니다.</p>'+rows,async form=>{
+    const data=new FormData(form);
+    const selected=patches.map((_,index)=>data.get('member-patch-'+index));
+    const pending=memberPatchChanges(state,patches,selected);
+    if(pending.length) await save(pending);else notify('이미 반영된 멤버 수정입니다.');
+  },'선택한 회원에 적용');
+}
 async function action(value){
   const [type,a,b]=value.split(':');
   if(type==='go'){if(state) return go(a);return;}
@@ -596,7 +613,9 @@ async function action(value){
     const tables=[...Object.keys(fields),'settings'];
     if((backup.privateRoster||backup.workbookImport||backup.memberPatches)&&store.demo) throw Error('실제 명단은 승인된 공동 사용 환경에서만 등록할 수 있습니다.');
     if(backup.version===1&&backup.memberPatches){
-      const pending=memberPatchChanges(state,backup.memberPatches);
+      const targets=memberPatchTargets(state,backup.memberPatches);
+      if(targets.some(id=>!id)) return reviewMemberPatches(backup.memberPatches,targets);
+      const pending=memberPatchChanges(state,backup.memberPatches,targets);
       if(pending.length) await save(pending);else notify('이미 반영된 멤버 수정입니다.');
       return;
     }

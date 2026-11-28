@@ -186,14 +186,25 @@ export function workbookChanges(state,changes,criteria){
   }
   return output;
 }
-export function memberPatchChanges(state,patches){
-  if(!Array.isArray(patches)||!patches.length||patches.length>100) throw Error('멤버 수정 파일 형식이 올바르지 않습니다.');
-  const seen=new Set();
-  return patches.map(patch=>{
+export function memberPatchTargets(state,patches){
+  if(!Array.isArray(patches)||!patches.length||patches.length>100||
+     patches.some(patch=>!patch||typeof patch!=='object'||!patch.name)){
+    throw Error('멤버 수정 파일 형식이 올바르지 않습니다.');
+  }
+  const targets=patches.map(patch=>{
     const matches=importMemberMatches(state,patch.id,patch.name,patch.aliases,patch.listeningNumber);
-    if(matches.length!==1||seen.has(matches[0]?.id)) throw Error('등록된 멤버와 수정 명단을 연결할 수 없습니다. 현재 명단의 이름과 중복을 확인하세요.');
-    const [row]=matches;
-    seen.add(row.id);
+    return matches.length===1?matches[0].id:'';
+  });
+  return targets.map(id=>targets.indexOf(id)===targets.lastIndexOf(id)?id:'');
+}
+export function memberPatchChanges(state,patches,targetIds){
+  const targets=targetIds||memberPatchTargets(state,patches);
+  const members=new Map(live(state.members).map(row=>[row.id,row]));
+  if(targets.length!==patches.length||new Set(targets).size!==targets.length||targets.some(id=>!members.has(id))){
+    throw Error('수정 항목마다 서로 다른 기존 회원을 선택하세요.');
+  }
+  return patches.map((patch,index)=>{
+    const row=members.get(targets[index]);
     const updated={...row};
     if(patch.removeViceChair&&committeeRole(row)==='부의장') updated.chapterRole='';
     for(const field of ['name','chapterRole','committeeDuty','listeningNumber']){
