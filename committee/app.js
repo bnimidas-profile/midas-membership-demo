@@ -49,6 +49,8 @@ function modal(title,body,onSubmit,submit='저장'){
   };
   dialog.showModal();
   dialog.querySelectorAll('textarea[name="agenda-detail"]').forEach(resizeAgenda);
+  const period=dialog.querySelector('.schedule-period');
+  if(period) period.querySelector('[name=endDate]').min=period.querySelector('[name=date]').value;
 }
 async function save(changes){
   state=await store.save(changes);
@@ -141,6 +143,14 @@ function guestAttendance(){
   })),...today.filter(row=>!regular.some(person=>row.guestId===person.id||!row.guestId&&row.name===person.name&&row.type===person.type)).map(row=>({person:row,record:row}))];
   return rows.map(({person,record})=>`<div class="guest-row"><div><button type="button" class="text-button guest-name" data-action="edit:guests:${e(person.id)}">${e(person.name)}</button><small>${e(person.type)}</small></div><div class="guest-options" role="group" aria-label="${e(person.name)} 참석 여부">${['참석','불참'].map(status=>`<button type="button" class="secondary guest-choice ${record?.status===status?statusColors[status]:''}" aria-pressed="${record?.status===status}" data-action="guest:${e(person.id)}:${status}">${status}</button>`).join('')}</div></div>`).join('')||empty('이름을 등록하면 회의 날짜별로 참석을 체크할 수 있습니다.');
 }
+function scheduleForm(row){
+  const values={...row,endDate:row.endDate||row.date};
+  return formFields(scheduleFields.slice(0,1),values,state)+
+    `<div class="schedule-period">
+      <fieldset><legend>시작</legend>${formFields(scheduleFields.slice(1,3),values,state)}</fieldset>
+      <fieldset><legend>종료</legend>${formFields(scheduleFields.slice(3,5),values,state)}</fieldset>
+    </div>`+formFields(scheduleFields.slice(5),values,state);
+}
 function edit(table,id='',defaults={}){
   const existing=state[table].find(row=>row.id===id);
   if(table==='members'&&!admin()){if(existing) modal(e(existing.name),`<p>${e(existing.company)} · ${e(existing.specialty)}</p><p>경청표 번호 ${e(existing.listeningNumber||'미등록')} · 챕터 직무 ${e(existing.chapterRole||'미등록')} · 갱신월 ${e(existing.renewalMonth||'미등록')}</p><p>갱신 만료일 ${e(existing.expiry||'미등록')}</p>`);return;}
@@ -150,7 +160,7 @@ function edit(table,id='',defaults={}){
   const weekly=isSchedule&&(row.type==='주간회의'||row.regularDate);
   const meetingOption=weekly?btn(row.cancelled?'주간회의 다시 표시':'이 날 주간회의 없음','weekly-toggle:'+row.date+':'+row.id):'';
   const trash=existing&&admin()&&!weekly?`<div class="editor-meta">등록 ${e(existing.createdBy||'샘플')} · 수정 ${e(existing.updatedBy||'—')} ${btn('휴지통으로 이동','delete:'+table+':'+existing.id,'danger')}</div>`:'';
-  modal(e(isSchedule?'챕터 일정':labelOf(table))+(existing||row.regularDate?' 수정':' 등록'),(table==='meetings'?meetingFields(row):formFields(inputs,row,state))+attachmentFields(table,row,store.demo)+meetingOption+trash,async form=>{
+  modal(e(isSchedule?'챕터 일정':labelOf(table))+(existing||row.regularDate?' 수정':' 등록'),(table==='meetings'?meetingFields(row):isSchedule?scheduleForm(row):formFields(inputs,row,state))+attachmentFields(table,row,store.demo)+meetingOption+trash,async form=>{
     const updated={...row,...readFields(form,inputs)};
     if('name' in updated&&!updated.name) throw Error('이름 또는 제목을 입력하세요.');
     if(table==='members'&&updated.listeningNumber!==null){
@@ -158,6 +168,10 @@ function edit(table,id='',defaults={}){
       if(live(state.members).some(member=>member.id!==row.id&&Number(member.listeningNumber)===updated.listeningNumber)) throw Error('이미 사용 중인 경청표 번호입니다.');
     }
     if(isSchedule){
+      updated.endDate=updated.endDate||updated.date;
+      if(updated.endDate<updated.date||updated.endDate===updated.date&&updated.time&&updated.endTime&&updated.endTime<updated.time){
+        throw Error('종료 날짜와 시간은 시작보다 앞설 수 없습니다.');
+      }
       if(weekly&&updated.type!=='주간회의'){
         throw Error('주간회의를 변경하려면 일정 구분을 주간회의로 유지하세요.');
       }
@@ -315,11 +329,28 @@ function calendar(){
 function calendarDay(date){
   return calendarDays(state,date.slice(0,7)).find(cell=>cell.date===date);
 }
+function scheduleDescription(item){
+  if(item.cancelled) return '취소된 정기 일정';
+  const endDate=item.endDate||item.date;
+  const time=[item.time,item.endTime].filter(Boolean).join(' – ');
+  const span=endDate!==item.date?
+    [item.date,item.time].filter(Boolean).join(' ')+' → '+[endDate,item.endTime].filter(Boolean).join(' '):
+    time;
+  return [span,item.location,item.type].filter(Boolean).join(' · ');
+}
 function showCalendarDay(date){
   const rows=calendarDay(date).items.map(item=>{
-    const description=item.cancelled?'취소된 정기 일정':[item.time,item.location,item.type].filter(Boolean).join(' · ');
-    return rowCard(item.cancelled?'주간회의 없음':item.name,description,
-      item.recurring?'edit-weekly:'+date:'edit-schedule:'+item.id);
+    const name=item.cancelled?'주간회의 없음':item.name;
+    const editAction=item.recurring?'edit-weekly:'+date:'edit-schedule:'+item.id;
+    const weekly=item.type==='주간회의';
+    const remove=weekly?'weekly-toggle:'+item.date+':'+item.id:'delete:other:'+item.id;
+    return `<article class="schedule-day-row">
+      <button class="schedule-day-title" type="button" data-action="${e(editAction)}"><strong>${e(name)}</strong><small>${e(scheduleDescription(item))}</small></button>
+      <div class="schedule-day-actions">
+        ${btn('수정',editAction)}
+        ${weekly||admin()?btn(item.cancelled?'다시 표시':'삭제',remove,item.cancelled?'secondary':'danger'):''}
+      </div>
+    </article>`;
   }).join('');
   modal(e(prettyDate(date))+' 일정',`<div class="toolbar">${btn('＋ 일정 등록','calendar-add:'+date,'primary')}</div>`+(rows||empty('등록된 일정이 없습니다.')));
 }
@@ -515,6 +546,13 @@ document.addEventListener('input',event=>{
   document.querySelector('#results').innerHTML=route()==='mpe'?mpeList():listContent(route());
 });
 document.addEventListener('change',event=>{
+  if(event.target.matches('.schedule-period [name=date]')){
+    const end=dialog.querySelector('.schedule-period [name=endDate]');
+    const start=event.target.value;
+    if(start&&(!end.value||end.value===end.min||end.value<start)) end.value=start;
+    end.min=start;
+    return;
+  }
   if(event.target.id==='meeting'){if(event.target.value){meeting=event.target.value;meetingPinned=true;render();}return;}
   if(event.target.id==='report-date'&&event.target.value){updateReport(event.target.value).catch(error=>notify(error.message));return;}
   const form=event.target.closest('#mpe-form');

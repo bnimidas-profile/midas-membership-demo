@@ -6,7 +6,7 @@ const notes=(label='특이사항')=>f('notes',label,'textarea');
 const select=(key,label,...options)=>f(key,label,'select',options);
 const member=(label='대상 멤버')=>f('member',label,'member');
 const task=[name(),select('status','진행 상태','대기','진행 중','완료'),f('owner','담당 위원'),f('due','기한','date'),select('priority','우선순위','일반','긴급'),notes()];
-export const scheduleFields=[date('일정 날짜'),f('time','시작 시간','time'),name('일정명'),select('type','일정 구분','주간회의','멤버십 회의','챕터 행사','기타'),f('location','장소'),f('owner','담당'),notes('일정 메모')];
+export const scheduleFields=[name('일정명'),date('시작 날짜'),f('time','시작 시간','time'),f('endDate','종료 날짜','date'),f('endTime','종료 시간','time'),select('type','일정 구분','주간회의','멤버십 회의','챕터 행사','기타'),f('location','장소'),f('owner','담당'),notes('일정 메모')];
 export const fields={
   board:task,other:task,
   meetings:[date('회의 날짜'),name('회의 제목')],

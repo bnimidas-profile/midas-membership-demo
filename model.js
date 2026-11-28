@@ -78,8 +78,8 @@ export function calendarDays(state,month){
   do {
     const date=day.toISOString().slice(0,10);
     const weekday=day.getUTCDay();
-    const items=records.filter(row=>row.date===date);
-    if(weekday===3&&!records.some(row=>row.regularDate===date)&&!items.some(row=>row.type==='주간회의')){
+    const items=records.filter(row=>row.date<=date&&date<=(row.cancelled?row.date:row.endDate||row.date));
+    if(weekday===3&&!records.some(row=>row.regularDate===date)&&!items.some(row=>row.type==='주간회의'&&row.date===date)){
       items.push(regularMeeting(date));
       items.sort((a,b)=>(a.time||'').localeCompare(b.time||'','en'));
     }
